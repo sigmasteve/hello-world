@@ -92,6 +92,17 @@ rather not install the native toolchains locally.
 - `app.json`'s `android.permissions` already lists the
   `android.permission.health.READ_*` entries `react-native-health-connect`
   needs.
+- `app.json`'s config-plugins list references `./plugins/withHealthConnect.js`
+  instead of the bare `"react-native-health-connect"` package name. That
+  file is a vendored copy of the package's own `app.plugin.js` (same
+  AndroidManifest mod, byte-for-byte at the time it was copied) — Expo's
+  auto-discovery of that file inside the package has failed with
+  `PluginError: Unexpected token 'typeof'` on at least one real machine
+  (not reproducible in the sandbox this project was originally built in,
+  so the exact trigger is unconfirmed). Referencing the mod by a local path
+  sidesteps that resolution entirely. If you upgrade
+  `react-native-health-connect`, diff its new `app.plugin.js` against
+  `plugins/withHealthConnect.js` and port any changes.
 
 ### What this sandbox could and couldn't verify
 

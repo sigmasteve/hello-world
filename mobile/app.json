@@ -48,7 +48,7 @@
           "healthUpdatePermission": "Hound does not write to Health, but iOS requires this description to be present."
         }
       ],
-      "react-native-health-connect",
+      "./plugins/withHealthConnect.js",
       "expo-dev-client"
     ]
   }
