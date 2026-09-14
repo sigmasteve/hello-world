@@ -11,6 +11,7 @@ import {
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
 import { color } from './src/theme/tokens';
+import { AuthProvider } from './src/auth/AuthContext';
 import { HealthDataProvider } from './src/health/HealthContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 
@@ -41,10 +42,12 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: color.bg }}>
       <SafeAreaProvider>
-        <HealthDataProvider>
-          <StatusBar style="light" />
-          <RootNavigator />
-        </HealthDataProvider>
+        <AuthProvider>
+          <HealthDataProvider>
+            <StatusBar style="light" />
+            <RootNavigator />
+          </HealthDataProvider>
+        </AuthProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

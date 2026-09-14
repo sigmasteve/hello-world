@@ -23,16 +23,44 @@ architecture as the original.
 ```
 src/
   theme/        design tokens ported from the web app's CSS variables
-  components/   shared UI primitives (Button, Card, Tag, Avatar, …)
-  navigation/   React Navigation stack — Main (tab-style content switcher,
-                matching the web's persistent top nav) + Hunt/Create as
-                pushed detail screens
+  components/   shared UI primitives (Button, Card, Tag, Avatar, TextField, …)
+  navigation/   React Navigation stack — gates on auth status (see below),
+                then Main (tab-style content switcher, matching the web's
+                persistent top nav) + Hunt/Create as pushed detail screens
   screens/      one file per screen (Home, Hunt, Challenges, Create wizard,
                 Metrics, Friends, Settings, Connect)
+  screens/auth/ Welcome, Login, SignUp screens (see "The auth layer")
+  auth/         the sign-in abstraction (see below)
   health/       the HealthKit/Health Connect abstraction (see below)
   data/         sample data for the social layer (challenges, friends) —
                 there's no backend, see "What's not implemented"
 ```
+
+## The auth layer
+
+`RootNavigator.tsx` renders either the auth screens (Welcome → Login/SignUp)
+or the main app, switched on `useAuth().status` — the standard React
+Navigation pattern for gating an app behind sign-in (swapping which
+`Stack.Screen`s are mounted, rather than navigating within one shared
+stack, so there's no back button into Welcome once you're signed in).
+
+- `src/auth/AuthContext.tsx` — `useAuth()` exposes `status`, `user`, and
+  `signInWithGoogle` / `signInWithFacebook` / `signInWithApple` /
+  `signInWithEmail` / `signUpWithEmail` / `signOut`.
+- `src/auth/mockAuth.ts` — **entirely mocked**, matching the rest of the
+  app's "no backend yet" state (see "What's not implemented"). The three
+  provider buttons resolve to a fake profile after a simulated delay, with
+  no real Google/Facebook/Apple SDK involved. Email sign-in/sign-up do
+  basic client-side validation plus a couple of deliberately-reachable
+  failure paths (`jordan.lee@gmail.com` / a password under 6 characters)
+  so the error states aren't purely theoretical. Swapping in a real
+  backend (Firebase Auth, Auth0, a custom API, or the real
+  `expo-auth-session` / `@react-native-google-signin` / `expo-apple-authentication`
+  SDKs) means rewriting `mockAuth.ts` — `AuthContext.tsx` and every screen
+  are written against its function signatures, not its implementation.
+- No session persistence: signing out or reloading the app resets to
+  signed-out, since there's no `AsyncStorage`/`SecureStore` layer yet and
+  nothing to restore a session from even if there were.
 
 ## The health data layer
 
@@ -163,3 +191,8 @@ original prototype shipped with (`src/data/sampleData.ts`) — there's no
 backend. HealthKit/Health Connect only cover *your own* metrics; syncing
 challenge state between friends' phones needs a real server, which is a
 separate project.
+
+Sign-in (`src/auth/`) is UI-complete but backend-mocked: no real Google,
+Facebook, or Apple SDK is wired up, there's no server verifying
+credentials, and nothing persists a session across an app restart. See
+"The auth layer" above for what a real integration needs to replace.
