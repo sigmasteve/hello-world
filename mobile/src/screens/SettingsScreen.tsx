@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { AndroidLogoIcon, AppleLogoIcon, ScalesIcon } from 'phosphor-react-native';
+import { AndroidLogoIcon, AppleLogoIcon, ScalesIcon, SignOutIcon } from 'phosphor-react-native';
+import { Avatar } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Card } from '../components/Card';
 import { RadioPill, ToggleRow } from '../components/Selectable';
@@ -9,6 +10,8 @@ import { text } from '../theme/text';
 import { color, font } from '../theme/tokens';
 import { ALERT_DEFS, SOURCES } from '../data/sampleData';
 import { useHealthProvider } from '../health/HealthContext';
+import { useAuth } from '../auth/AuthContext';
+import type { AuthProviderId } from '../auth/types';
 
 const SOURCE_ICON: Record<string, React.ComponentType<any>> = {
   'Apple Health': AppleLogoIcon,
@@ -16,8 +19,16 @@ const SOURCE_ICON: Record<string, React.ComponentType<any>> = {
   'Withings Scale': ScalesIcon,
 };
 
+const PROVIDER_LABEL: Record<AuthProviderId, string> = {
+  google: 'Google',
+  facebook: 'Facebook',
+  apple: 'Apple',
+  email: 'Email & password',
+};
+
 export function SettingsScreen() {
   const health = useHealthProvider();
+  const { user, signOut } = useAuth();
   const [alerts, setAlerts] = useState(ALERT_DEFS.map((a) => a.defaultOn));
   const [conflict, setConflict] = useState<'device' | 'apple' | 'ask'>('device');
   const [units, setUnits] = useState<'imperial' | 'metric'>('imperial');
@@ -25,6 +36,24 @@ export function SettingsScreen() {
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={text.h2}>Data & account</Text>
+
+      {user && (
+        <Card style={styles.accountRow} elevated={false}>
+          <Avatar initials={user.initials} tint={color.accent800} size={40} fontSize={14} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.sourceName}>{user.name}</Text>
+            <Text style={styles.footNote}>
+              {user.email} · Signed in with {PROVIDER_LABEL[user.provider]}
+            </Text>
+          </View>
+          <Button
+            label="Log out"
+            small
+            icon={<SignOutIcon size={14} color={color.text} />}
+            onPress={signOut}
+          />
+        </Card>
+      )}
 
       <Card style={{ gap: 12 }} elevated={false}>
         <Text style={text.h4}>Connected sources</Text>
@@ -90,6 +119,7 @@ export function SettingsScreen() {
 
 const styles = StyleSheet.create({
   container: { padding: 16, gap: 14, paddingBottom: 48 },
+  accountRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sourceRow: {
     flexDirection: 'row',
     alignItems: 'center',
