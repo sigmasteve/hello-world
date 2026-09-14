@@ -1,8 +1,15 @@
-import AppleHealthKit, {
-  HealthInputOptions,
-  HealthKitPermissions,
-  HealthValue,
-} from 'react-native-health';
+import {
+  authorizationStatusFor,
+  AuthorizationStatus,
+  getMostRecentQuantitySample,
+  isHealthDataAvailableAsync,
+  queryQuantitySamples,
+  queryStatisticsCollectionForQuantity,
+  queryStatisticsForQuantity,
+  queryWorkoutSamples,
+  requestAuthorization,
+  WorkoutActivityType,
+} from '@kingstinct/react-native-healthkit';
 import type {
   DailySteps,
   HealthAuthStatus,
@@ -11,53 +18,37 @@ import type {
   WorkoutSample,
 } from './types';
 
-// Real HealthKit integration. Requires a custom dev client or a standalone
-// build (`npx expo prebuild` + `expo run:ios`, or an EAS dev-client build) —
-// HealthKit is a native module and is NOT available in Expo Go. Permission
-// strings also need `NSHealthShareUsageDescription` /
-// `NSHealthUpdateUsageDescription` in app.json's `ios.infoPlist`, and the
-// HealthKit capability + entitlement enabled for the bundle ID (see
-// app.json's `ios.entitlements` in this project, and Xcode's Signing &
-// Capabilities tab for a bare/prebuilt project).
+// Real HealthKit integration via @kingstinct/react-native-healthkit (a Nitro
+// Module — React Native's New Architecture only). Requires a custom dev
+// client or a standalone build (`npx expo prebuild` + `expo run:ios`, or an
+// EAS dev-client build) — HealthKit is a native module and is NOT available
+// in Expo Go.
+//
+// This project previously used `react-native-health`, a legacy (non-Turbo)
+// native module. As of React Native 0.82, Old Architecture support has been
+// removed from React Native's own Podfile tooling entirely (see
+// `react_native_pods.rb`'s `warn_if_new_arch_disabled` — pod install always
+// forces `RCT_NEW_ARCH_ENABLED=1` now, so `newArchEnabled: false` in
+// app.json is a no-op on current React Native). `react-native-health` never
+// registered its native module with the JS bridge under bridgeless mode
+// (every call — starting with `isAvailable()` — threw `TypeError: undefined
+// is not a function`), and its last release (1.19.0) predates any fix.
+// Switching to a Nitro-based library sidesteps the whole legacy-bridge
+// interop problem instead of patching around it.
 
-// react-native-health's `HealthPermission` is a TypeScript-only enum (the
-// package's actual JS entry has no named exports at all — it's a plain
-// `module.exports = HealthKit` default object). Importing HealthPermission
-// as a value resolves to `undefined` at runtime, so `HealthPermission.Steps`
-// throws "Cannot read property 'Steps' of undefined". The real runtime
-// constants live on the default export instead, at
-// AppleHealthKit.Constants.Permissions.* — same string values, but backed
-// by an actual JS object (src/constants/Permissions.js).
-const { Permissions } = AppleHealthKit.Constants;
+const READ_TYPES = [
+  'HKQuantityTypeIdentifierStepCount',
+  'HKQuantityTypeIdentifierDistanceWalkingRunning',
+  'HKQuantityTypeIdentifierHeartRate',
+  'HKQuantityTypeIdentifierRestingHeartRate',
+  'HKQuantityTypeIdentifierBodyMass',
+  'HKWorkoutTypeIdentifier',
+] as const;
 
-const PERMS: HealthKitPermissions = {
-  permissions: {
-    read: [
-      Permissions.Steps,
-      Permissions.DistanceWalkingRunning,
-      Permissions.HeartRate,
-      Permissions.RestingHeartRate,
-      Permissions.BodyMass,
-      Permissions.Workout,
-    ],
-    write: [],
-  },
-};
-
-function initHealthKit(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    AppleHealthKit.initHealthKit(PERMS, (error) => {
-      if (error) reject(new Error(error));
-      else resolve();
-    });
-  });
-}
-
-function metersToMiles(m: number): number {
-  return m / 1609.344;
-}
-function kgToLb(kg: number): number {
-  return kg * 2.20462;
+function startOfDay(d: Date): Date {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
 }
 
 export const iosHealthProvider: HealthProvider = {
@@ -65,28 +56,22 @@ export const iosHealthProvider: HealthProvider = {
   platformLabel: 'Apple Health',
 
   async isAvailable(): Promise<boolean> {
-    return new Promise((resolve) => {
-      AppleHealthKit.isAvailable((err, available) => resolve(!err && !!available));
-    });
+    return isHealthDataAvailableAsync();
   },
 
   async getAuthorizationStatus(): Promise<HealthAuthStatus> {
-    // react-native-health doesn't expose a pure status check distinct from
-    // initHealthKit's own permission prompt; a successful init means the
-    // user has been asked (Apple never reports read-permission grant state
-    // back to the app, by design — the practical signal is "did a read
-    // call return data").
-    try {
-      await initHealthKit();
-      return 'authorized';
-    } catch {
-      return 'not-determined';
-    }
+    // Apple's read-authorization status is deliberately unreliable by
+    // design (HealthKit never tells an app whether a *read* permission was
+    // granted or denied, only whether a request was ever made) — treat
+    // "not determined" as the only meaningful distinct status and
+    // everything else as authorized, matching requestAuthorization below.
+    const status = authorizationStatusFor('HKQuantityTypeIdentifierStepCount');
+    return status === AuthorizationStatus.notDetermined ? 'not-determined' : 'authorized';
   },
 
   async requestAuthorization(): Promise<HealthAuthStatus> {
     try {
-      await initHealthKit();
+      await requestAuthorization({ toRead: READ_TYPES, toShare: [] });
       return 'authorized';
     } catch {
       return 'denied';
@@ -94,107 +79,105 @@ export const iosHealthProvider: HealthProvider = {
   },
 
   async getSnapshot(): Promise<HealthSnapshot> {
-    await initHealthKit();
-    const options: HealthInputOptions = { unit: 'mile' as never, date: new Date().toISOString() };
+    const todayStart = startOfDay(new Date());
+    const now = new Date();
 
-    const [steps, distance, restingHr, weight] = await Promise.all([
-      new Promise<number>((resolve) =>
-        AppleHealthKit.getStepCount(options, (err, r: HealthValue) => resolve(err ? 0 : r.value)),
+    const [stepsStats, distanceStats, restingHr, weight] = await Promise.all([
+      queryStatisticsForQuantity(
+        'HKQuantityTypeIdentifierStepCount',
+        ['cumulativeSum'],
+        { filter: { date: { startDate: todayStart, endDate: now } }, unit: 'count' },
       ),
-      new Promise<number>((resolve) =>
-        AppleHealthKit.getDistanceWalkingRunning(options, (err, r: HealthValue) =>
-          resolve(err ? 0 : metersToMiles(r.value)),
-        ),
+      queryStatisticsForQuantity(
+        'HKQuantityTypeIdentifierDistanceWalkingRunning',
+        ['cumulativeSum'],
+        { filter: { date: { startDate: todayStart, endDate: now } }, unit: 'mi' },
       ),
-      new Promise<number | null>((resolve) =>
-        AppleHealthKit.getRestingHeartRate(options, (err, r: HealthValue) =>
-          resolve(err ? null : r.value),
-        ),
-      ),
-      new Promise<number | null>((resolve) =>
-        AppleHealthKit.getLatestWeight({ unit: 'pound' as never }, (err, r: HealthValue) =>
-          resolve(err ? null : r.value),
-        ),
-      ),
+      getMostRecentQuantitySample('HKQuantityTypeIdentifierRestingHeartRate', 'count/min'),
+      getMostRecentQuantitySample('HKQuantityTypeIdentifierBodyMass', 'lb'),
     ]);
 
     return {
-      stepsToday: Math.round(steps),
+      stepsToday: Math.round(stepsStats.sumQuantity?.quantity ?? 0),
       stepsGoal: 10000,
-      distanceTodayMi: Math.round(distance * 10) / 10,
-      restingHeartRateBpm: restingHr,
-      latestWeightLb: weight,
+      distanceTodayMi: Math.round((distanceStats.sumQuantity?.quantity ?? 0) * 10) / 10,
+      restingHeartRateBpm: restingHr ? Math.round(restingHr.quantity) : null,
+      latestWeightLb: weight ? Math.round(weight.quantity * 10) / 10 : null,
       source: 'Apple Health',
       lastSyncedAt: new Date(),
     };
   },
 
   async getWeeklySteps(): Promise<DailySteps[]> {
-    await initHealthKit();
     const endDate = new Date();
-    const startDate = new Date();
+    const startDate = startOfDay(new Date());
     startDate.setDate(startDate.getDate() - 6);
-    return new Promise((resolve) => {
-      AppleHealthKit.getDailyStepCountSamples(
-        { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
-        (err, results: HealthValue[]) => {
-          if (err || !results) return resolve([]);
-          resolve(
-            results.map((r) => ({
-              date: new Date(r.startDate).toLocaleDateString(undefined, { weekday: 'short' }),
-              steps: Math.round(r.value),
-            })),
-          );
-        },
-      );
-    });
+
+    const buckets = await queryStatisticsCollectionForQuantity(
+      'HKQuantityTypeIdentifierStepCount',
+      ['cumulativeSum'],
+      startDate,
+      { day: 1 },
+      { filter: { date: { startDate, endDate } }, unit: 'count' },
+    );
+
+    return buckets.map((b) => ({
+      date: (b.startDate ?? startDate).toLocaleDateString(undefined, { weekday: 'short' }),
+      steps: Math.round(b.sumQuantity?.quantity ?? 0),
+    }));
   },
 
   async getHeartRateSeries(days: number): Promise<number[]> {
-    await initHealthKit();
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - (days - 1));
-    return new Promise((resolve) => {
-      AppleHealthKit.getRestingHeartRateSamples(
-        { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
-        (err, results: HealthValue[]) => resolve(err || !results ? [] : results.map((r) => r.value)),
-      );
+
+    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierRestingHeartRate', {
+      limit: 0,
+      ascending: true,
+      unit: 'count/min',
+      filter: { date: { startDate, endDate } },
     });
+    return samples.map((s) => s.quantity);
   },
 
   async getWeightSeries(days: number): Promise<number[]> {
-    await initHealthKit();
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - (days - 1));
-    return new Promise((resolve) => {
-      AppleHealthKit.getWeightSamples(
-        { startDate: startDate.toISOString(), endDate: endDate.toISOString(), unit: 'pound' as never },
-        (err, results: HealthValue[]) => resolve(err || !results ? [] : results.map((r) => r.value)),
-      );
+
+    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierBodyMass', {
+      limit: 0,
+      ascending: true,
+      unit: 'lb',
+      filter: { date: { startDate, endDate } },
     });
+    return samples.map((s) => s.quantity);
   },
 
   async getRecentWorkouts(limit: number): Promise<WorkoutSample[]> {
-    await initHealthKit();
-    return new Promise((resolve) => {
-      AppleHealthKit.getSamples(
-        { type: 'Workout' as never, startDate: new Date(0).toISOString(), limit, ascending: false } as never,
-        (err, results: any[]) => {
-          if (err || !results) return resolve([]);
-          resolve(
-            results.slice(0, limit).map((w, i) => ({
-              id: w.id ?? String(i),
-              name: w.activityName ?? 'Workout',
-              when: new Date(w.start),
-              source: 'Apple Health',
-              distanceMi: w.distance ? metersToMiles(w.distance) : undefined,
-              avgHeartRate: undefined,
-            })),
-          );
-        },
-      );
-    });
+    const workouts = await queryWorkoutSamples({ limit, ascending: false });
+    return Promise.all(
+      workouts.map(async (w) => {
+        const distanceStat = await w.getStatistic('HKQuantityTypeIdentifierDistanceWalkingRunning', 'mi');
+        return {
+          id: w.uuid,
+          name: workoutActivityName(w.workoutActivityType),
+          when: w.startDate,
+          source: 'Apple Health',
+          distanceMi: distanceStat?.sumQuantity?.quantity,
+          avgHeartRate: undefined,
+        };
+      }),
+    );
   },
 };
+
+function workoutActivityName(type: WorkoutActivityType): string {
+  // WorkoutActivityType is a numeric enum; reverse lookup gives back its
+  // already-display-ready camelCase key ("crossTraining",
+  // "traditionalStrengthTraining", …) — title-case it for display.
+  const key = WorkoutActivityType[type];
+  if (!key) return 'Workout';
+  return key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim();
+}

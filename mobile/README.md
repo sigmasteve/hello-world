@@ -40,7 +40,7 @@ src/
 Screens only ever call `useHealthProvider()` (`src/health/HealthContext.tsx`) —
 they never import a platform SDK directly.
 
-- `src/health/iosProvider.ts` — real HealthKit calls via `react-native-health`.
+- `src/health/iosProvider.ts` — real HealthKit calls via `@kingstinct/react-native-healthkit`.
 - `src/health/androidProvider.ts` — real Health Connect calls via `react-native-health-connect`.
 - `src/health/mockProvider.ts` — sample data, used automatically whenever the
   native module isn't linked (Expo Go, web, or this repo's dev sandbox) or
@@ -83,23 +83,33 @@ rather not install the native toolchains locally.
 - Test on a real device or the iOS Simulator (the Simulator has *no* real
   health data — seed some in the Simulator's Health app first, or leave it
   empty to see the app's own "no data" paths).
-- `react-native-health`@1.19.0's native code fails to compile against
-  current React Native (`no visible @interface for 'RCTCallableJSModules'
-  declares the selector 'setBridge:'`) — that method no longer exists on
-  the class. `patches/react-native-health+1.19.0.patch` (applied
-  automatically via `postinstall`, `patch-package`) removes the few lines
-  causing it; see the comment left in the patched file for why. Confirmed
-  unresolved upstream as of this writing (same code on the package's
-  `master` branch, not just the npm release). If you bump this dependency,
-  re-check whether it's been fixed upstream before assuming the patch
-  still applies.
-- `react-native-health`'s `HealthPermission` is a TypeScript-only enum —
-  the package's actual JS entry (`index.js`) is a plain
-  `module.exports = HealthKit` default object with no named exports at
-  all, so `import { HealthPermission } from 'react-native-health'` resolves
-  to `undefined` at runtime and `HealthPermission.Steps` throws. Use the
-  default export's `AppleHealthKit.Constants.Permissions.*` instead (same
-  string values, but a real JS object backing it) — see `iosProvider.ts`.
+- Uses `@kingstinct/react-native-healthkit` (backed by
+  `react-native-nitro-modules`), not the older `react-native-health`.
+  React Native removed Old Architecture support from its own Podfile
+  tooling as of RN 0.82 (`pod install` now always forces
+  `RCT_NEW_ARCH_ENABLED=1` — see `warn_if_new_arch_disabled` in
+  `react_native_pods.rb` — so `newArchEnabled: false` in app.json is a
+  no-op on current React Native and can't be used to opt out). This
+  project's RN version is 0.86.3, well past that point.
+  `react-native-health`@1.19.0 (its latest release) is a legacy
+  (non-Turbo) native module that predates the New Architecture; under
+  bridgeless mode its native module never registered with the JS bridge
+  at all, so every call on it — starting with `isAvailable()` — threw
+  `TypeError: undefined is not a function` at runtime, and the app
+  silently fell back to mock data with no crash and no permission prompt.
+  `@kingstinct/react-native-healthkit` is a Nitro Module, i.e. built for
+  the New Architecture from the ground up, which avoids that whole class
+  of interop bug instead of patching around it. Its config plugin
+  (referenced by bare package name in `app.json`'s `plugins`, since unlike
+  Health Connect's it's plain JS and Expo's auto-discovery resolves it
+  fine) sets the HealthKit entitlement; `{ "background": false }` opts out
+  of the background-delivery entitlement the plugin would otherwise add by
+  default, since this app doesn't use background delivery.
+- HealthKit's read-authorization status is deliberately unreliable by
+  design — `authorizationStatusFor()` distinguishes "never asked" from
+  everything else, but not "granted" from "denied" for *read* types (Apple
+  never reports that back to the calling app, for privacy). `iosProvider.ts`
+  treats "not determined" as the only meaningful distinct status.
 
 ### Android specifics
 - Needs the Health Connect app. Android 14+ ships it in-box; earlier
@@ -126,9 +136,13 @@ rather not install the native toolchains locally.
 This app was built in a container with no iOS Simulator, no Android
 emulator, and no physical device attached. What *was* verified here:
 - `npx tsc --noEmit` — clean, no type errors.
+- `npx expo prebuild --platform ios` / `--platform android` — both generate
+  native projects cleanly; the iOS entitlements and Info.plist keys the
+  HealthKit config plugin is supposed to add were checked in the generated
+  `ios/` output.
 - `npx expo export --platform ios` and `--platform android` — both bundle
-  cleanly (4,200+ modules resolve, including `react-native-health` and
-  `react-native-health-connect`), so there's no import/resolution error
+  cleanly (4,200+ modules resolve, including `@kingstinct/react-native-healthkit`
+  and `react-native-health-connect`), so there's no import/resolution error
   waiting to surface on a real build.
 - The full UI, every screen, and every interaction (wizard steps, slider,
   toggles, tab switches, navigation) — visually verified end-to-end via

@@ -1,6 +1,7 @@
 // The shape every screen reads from — platform-agnostic. Screens never
-// import react-native-health or react-native-health-connect directly; they
-// go through `useHealth()` / `getHealthProvider()` from ./index.ts.
+// import @kingstinct/react-native-healthkit or react-native-health-connect
+// directly; they go through `useHealth()` / `getHealthProvider()` from
+// ./index.ts.
 
 export type SourceLabel = string; // e.g. "Apple Health · iPhone 15", "Health Connect · Pixel 8"
 
