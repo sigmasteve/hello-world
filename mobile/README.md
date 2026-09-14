@@ -83,6 +83,16 @@ rather not install the native toolchains locally.
 - Test on a real device or the iOS Simulator (the Simulator has *no* real
   health data — seed some in the Simulator's Health app first, or leave it
   empty to see the app's own "no data" paths).
+- `react-native-health`@1.19.0's native code fails to compile against
+  current React Native (`no visible @interface for 'RCTCallableJSModules'
+  declares the selector 'setBridge:'`) — that method no longer exists on
+  the class. `patches/react-native-health+1.19.0.patch` (applied
+  automatically via `postinstall`, `patch-package`) removes the few lines
+  causing it; see the comment left in the patched file for why. Confirmed
+  unresolved upstream as of this writing (same code on the package's
+  `master` branch, not just the npm release). If you bump this dependency,
+  re-check whether it's been fixed upstream before assuming the patch
+  still applies.
 
 ### Android specifics
 - Needs the Health Connect app. Android 14+ ships it in-box; earlier
