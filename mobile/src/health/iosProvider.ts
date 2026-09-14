@@ -51,6 +51,17 @@ function startOfDay(d: Date): Date {
   return copy;
 }
 
+// HealthKit throws (`Error Domain=com.apple.healthkit Code=5 "Authorization
+// not determined"`) if a read is attempted before requestAuthorization has
+// ever been called for that type — which happens routinely here, since
+// screens query data as soon as they mount, before the user has necessarily
+// visited the Connect screen. That's an expected, non-exceptional state
+// (equivalent to "no data yet"), not a bug to crash over, so every read
+// below is wrapped to fall back to a safe default instead of rejecting.
+function orDefault<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  return promise.catch(() => fallback);
+}
+
 export const iosHealthProvider: HealthProvider = {
   platform: 'ios',
   platformLabel: 'Apple Health',
@@ -83,18 +94,24 @@ export const iosHealthProvider: HealthProvider = {
     const now = new Date();
 
     const [stepsStats, distanceStats, restingHr, weight] = await Promise.all([
-      queryStatisticsForQuantity(
-        'HKQuantityTypeIdentifierStepCount',
-        ['cumulativeSum'],
-        { filter: { date: { startDate: todayStart, endDate: now } }, unit: 'count' },
+      orDefault(
+        queryStatisticsForQuantity(
+          'HKQuantityTypeIdentifierStepCount',
+          ['cumulativeSum'],
+          { filter: { date: { startDate: todayStart, endDate: now } }, unit: 'count' },
+        ),
+        { sources: [] },
       ),
-      queryStatisticsForQuantity(
-        'HKQuantityTypeIdentifierDistanceWalkingRunning',
-        ['cumulativeSum'],
-        { filter: { date: { startDate: todayStart, endDate: now } }, unit: 'mi' },
+      orDefault(
+        queryStatisticsForQuantity(
+          'HKQuantityTypeIdentifierDistanceWalkingRunning',
+          ['cumulativeSum'],
+          { filter: { date: { startDate: todayStart, endDate: now } }, unit: 'mi' },
+        ),
+        { sources: [] },
       ),
-      getMostRecentQuantitySample('HKQuantityTypeIdentifierRestingHeartRate', 'count/min'),
-      getMostRecentQuantitySample('HKQuantityTypeIdentifierBodyMass', 'lb'),
+      orDefault(getMostRecentQuantitySample('HKQuantityTypeIdentifierRestingHeartRate', 'count/min'), undefined),
+      orDefault(getMostRecentQuantitySample('HKQuantityTypeIdentifierBodyMass', 'lb'), undefined),
     ]);
 
     return {
@@ -113,12 +130,15 @@ export const iosHealthProvider: HealthProvider = {
     const startDate = startOfDay(new Date());
     startDate.setDate(startDate.getDate() - 6);
 
-    const buckets = await queryStatisticsCollectionForQuantity(
-      'HKQuantityTypeIdentifierStepCount',
-      ['cumulativeSum'],
-      startDate,
-      { day: 1 },
-      { filter: { date: { startDate, endDate } }, unit: 'count' },
+    const buckets = await orDefault(
+      queryStatisticsCollectionForQuantity(
+        'HKQuantityTypeIdentifierStepCount',
+        ['cumulativeSum'],
+        startDate,
+        { day: 1 },
+        { filter: { date: { startDate, endDate } }, unit: 'count' },
+      ),
+      [],
     );
 
     return buckets.map((b) => ({
@@ -132,12 +152,15 @@ export const iosHealthProvider: HealthProvider = {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - (days - 1));
 
-    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierRestingHeartRate', {
-      limit: 0,
-      ascending: true,
-      unit: 'count/min',
-      filter: { date: { startDate, endDate } },
-    });
+    const samples = await orDefault(
+      queryQuantitySamples('HKQuantityTypeIdentifierRestingHeartRate', {
+        limit: 0,
+        ascending: true,
+        unit: 'count/min',
+        filter: { date: { startDate, endDate } },
+      }),
+      [],
+    );
     return samples.map((s) => s.quantity);
   },
 
@@ -146,20 +169,26 @@ export const iosHealthProvider: HealthProvider = {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - (days - 1));
 
-    const samples = await queryQuantitySamples('HKQuantityTypeIdentifierBodyMass', {
-      limit: 0,
-      ascending: true,
-      unit: 'lb',
-      filter: { date: { startDate, endDate } },
-    });
+    const samples = await orDefault(
+      queryQuantitySamples('HKQuantityTypeIdentifierBodyMass', {
+        limit: 0,
+        ascending: true,
+        unit: 'lb',
+        filter: { date: { startDate, endDate } },
+      }),
+      [],
+    );
     return samples.map((s) => s.quantity);
   },
 
   async getRecentWorkouts(limit: number): Promise<WorkoutSample[]> {
-    const workouts = await queryWorkoutSamples({ limit, ascending: false });
+    const workouts = await orDefault(queryWorkoutSamples({ limit, ascending: false }), []);
     return Promise.all(
       workouts.map(async (w) => {
-        const distanceStat = await w.getStatistic('HKQuantityTypeIdentifierDistanceWalkingRunning', 'mi');
+        const distanceStat = await orDefault(
+          w.getStatistic('HKQuantityTypeIdentifierDistanceWalkingRunning', 'mi'),
+          undefined,
+        );
         return {
           id: w.uuid,
           name: workoutActivityName(w.workoutActivityType),
