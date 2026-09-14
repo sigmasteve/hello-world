@@ -54,6 +54,15 @@ function daysAgoIso(days: number): string {
   return d.toISOString();
 }
 
+// readRecords throws if the permission for that record type hasn't been
+// granted yet — an expected state (screens query data as soon as they
+// mount, before the user necessarily visited the Connect screen), not a
+// bug to crash over. Every read below falls back to an empty result
+// instead of rejecting.
+function orEmpty<T>(promise: Promise<{ records: T[] }>): Promise<{ records: T[] }> {
+  return promise.catch(() => ({ records: [] as T[] }));
+}
+
 export const androidHealthProvider: HealthProvider = {
   platform: 'android',
   platformLabel: 'Health Connect',
@@ -92,10 +101,10 @@ export const androidHealthProvider: HealthProvider = {
     const todayFilter = { operator: 'between' as const, startTime: startOfDayIso(), endTime: new Date().toISOString() };
 
     const [steps, distance, heartRate, weight] = await Promise.all([
-      readRecords('Steps', { timeRangeFilter: todayFilter }),
-      readRecords('Distance', { timeRangeFilter: todayFilter }),
-      readRecords('HeartRate', { timeRangeFilter: todayFilter }),
-      readRecords('Weight', { timeRangeFilter: { operator: 'before', endTime: new Date().toISOString() } }),
+      orEmpty(readRecords('Steps', { timeRangeFilter: todayFilter })),
+      orEmpty(readRecords('Distance', { timeRangeFilter: todayFilter })),
+      orEmpty(readRecords('HeartRate', { timeRangeFilter: todayFilter })),
+      orEmpty(readRecords('Weight', { timeRangeFilter: { operator: 'before', endTime: new Date().toISOString() } })),
     ]);
 
     const totalSteps = steps.records.reduce((sum, r) => sum + r.count, 0);
@@ -123,9 +132,9 @@ export const androidHealthProvider: HealthProvider = {
       const start = daysAgoIso(i);
       const endDate = new Date(start);
       endDate.setDate(endDate.getDate() + 1);
-      const { records } = await readRecords('Steps', {
+      const { records } = await orEmpty(readRecords('Steps', {
         timeRangeFilter: { operator: 'between', startTime: start, endTime: endDate.toISOString() },
-      });
+      }));
       const total = records.reduce((sum, r) => sum + r.count, 0);
       out.push({
         date: new Date(start).toLocaleDateString(undefined, { weekday: 'short' }),
@@ -137,27 +146,27 @@ export const androidHealthProvider: HealthProvider = {
 
   async getHeartRateSeries(days: number): Promise<number[]> {
     await ensureInitialized();
-    const { records } = await readRecords('HeartRate', {
+    const { records } = await orEmpty(readRecords('HeartRate', {
       timeRangeFilter: { operator: 'between', startTime: daysAgoIso(days - 1), endTime: new Date().toISOString() },
-    });
+    }));
     return records.flatMap((r) => r.samples.map((s) => s.beatsPerMinute));
   },
 
   async getWeightSeries(days: number): Promise<number[]> {
     await ensureInitialized();
-    const { records } = await readRecords('Weight', {
+    const { records } = await orEmpty(readRecords('Weight', {
       timeRangeFilter: { operator: 'between', startTime: daysAgoIso(days - 1), endTime: new Date().toISOString() },
-    });
+    }));
     return records.map((r) => Math.round(kgToLb(r.weight.inKilograms) * 10) / 10);
   },
 
   async getRecentWorkouts(limit: number): Promise<WorkoutSample[]> {
     await ensureInitialized();
-    const { records } = await readRecords('ExerciseSession', {
+    const { records } = await orEmpty(readRecords('ExerciseSession', {
       timeRangeFilter: { operator: 'between', startTime: daysAgoIso(30), endTime: new Date().toISOString() },
       ascendingOrder: false,
       pageSize: limit,
-    });
+    }));
     return records.slice(0, limit).map((r, i) => ({
       id: r.metadata?.id ?? String(i),
       name: r.title ?? r.exerciseType?.toString() ?? 'Workout',
