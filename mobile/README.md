@@ -93,6 +93,13 @@ rather not install the native toolchains locally.
   `master` branch, not just the npm release). If you bump this dependency,
   re-check whether it's been fixed upstream before assuming the patch
   still applies.
+- `react-native-health`'s `HealthPermission` is a TypeScript-only enum —
+  the package's actual JS entry (`index.js`) is a plain
+  `module.exports = HealthKit` default object with no named exports at
+  all, so `import { HealthPermission } from 'react-native-health'` resolves
+  to `undefined` at runtime and `HealthPermission.Steps` throws. Use the
+  default export's `AppleHealthKit.Constants.Permissions.*` instead (same
+  string values, but a real JS object backing it) — see `iosProvider.ts`.
 
 ### Android specifics
 - Needs the Health Connect app. Android 14+ ships it in-box; earlier
