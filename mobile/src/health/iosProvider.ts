@@ -1,7 +1,6 @@
 import AppleHealthKit, {
   HealthInputOptions,
   HealthKitPermissions,
-  HealthPermission,
   HealthValue,
 } from 'react-native-health';
 import type {
@@ -21,15 +20,25 @@ import type {
 // app.json's `ios.entitlements` in this project, and Xcode's Signing &
 // Capabilities tab for a bare/prebuilt project).
 
+// react-native-health's `HealthPermission` is a TypeScript-only enum (the
+// package's actual JS entry has no named exports at all — it's a plain
+// `module.exports = HealthKit` default object). Importing HealthPermission
+// as a value resolves to `undefined` at runtime, so `HealthPermission.Steps`
+// throws "Cannot read property 'Steps' of undefined". The real runtime
+// constants live on the default export instead, at
+// AppleHealthKit.Constants.Permissions.* — same string values, but backed
+// by an actual JS object (src/constants/Permissions.js).
+const { Permissions } = AppleHealthKit.Constants;
+
 const PERMS: HealthKitPermissions = {
   permissions: {
     read: [
-      HealthPermission.Steps,
-      HealthPermission.DistanceWalkingRunning,
-      HealthPermission.HeartRate,
-      HealthPermission.RestingHeartRate,
-      HealthPermission.BodyMass,
-      HealthPermission.Workout,
+      Permissions.Steps,
+      Permissions.DistanceWalkingRunning,
+      Permissions.HeartRate,
+      Permissions.RestingHeartRate,
+      Permissions.BodyMass,
+      Permissions.Workout,
     ],
     write: [],
   },
