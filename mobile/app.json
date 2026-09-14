@@ -42,10 +42,9 @@
     },
     "plugins": [
       [
-        "react-native-health",
+        "@kingstinct/react-native-healthkit",
         {
-          "healthSharePermission": "Hound reads your steps, distance, heart rate and weight to score challenges with friends.",
-          "healthUpdatePermission": "Hound does not write to Health, but iOS requires this description to be present."
+          "background": false
         }
       ],
       "./plugins/withHealthConnect.js",
