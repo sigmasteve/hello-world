@@ -1,0 +1,131 @@
+import React from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  ChartLineUpIcon,
+  FlagCheckeredIcon,
+  HouseIcon,
+  PawPrintIcon,
+  PlugsIcon,
+  UsersThreeIcon,
+} from 'phosphor-react-native';
+import { color, font } from '../theme/tokens';
+import type { MainTab } from '../navigation/types';
+
+const NAV: { id: MainTab; label: string; Icon: React.ComponentType<any> }[] = [
+  { id: 'home', label: 'Today', Icon: HouseIcon },
+  { id: 'challenges', label: 'Challenges', Icon: FlagCheckeredIcon },
+  { id: 'metrics', label: 'Data', Icon: ChartLineUpIcon },
+  { id: 'friends', label: 'Friends', Icon: UsersThreeIcon },
+  { id: 'connect', label: 'Connect', Icon: PlugsIcon },
+];
+
+export function TopNav({
+  active,
+  onSelect,
+  onProfile,
+}: {
+  active: MainTab | 'hunt' | 'create';
+  onSelect: (tab: MainTab) => void;
+  onProfile: () => void;
+}) {
+  return (
+    <SafeAreaView edges={['top']} style={styles.safe}>
+      <View style={styles.brandRow}>
+        <View style={styles.brandMark}>
+          <PawPrintIcon size={16} color={color.accent} weight="fill" />
+        </View>
+        <Text style={styles.brandName}>Hound</Text>
+        <Pressable style={styles.profile} onPress={onProfile}>
+          <View style={styles.profileAvatar}>
+            <Text style={styles.profileInitials}>JL</Text>
+          </View>
+          <Text style={styles.profileName}>Jordan</Text>
+        </Pressable>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.navRow}
+      >
+        {NAV.map(({ id, label, Icon }) => {
+          const on = active === id || (id === 'challenges' && (active === 'hunt' || active === 'create'));
+          return (
+            <Pressable
+              key={id}
+              onPress={() => onSelect(id)}
+              style={[styles.navItem, on && styles.navItemOn]}
+            >
+              <Icon size={15} color={on ? color.accent200 : 'rgba(233,233,237,0.68)'} />
+              <Text style={[styles.navLabel, on && styles.navLabelOn]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: {
+    backgroundColor: 'rgba(22,24,38,0.96)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.divider,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  brandMark: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: color.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandName: { fontFamily: font.headingSemibold, fontSize: 17, color: color.text, letterSpacing: 0.2 },
+  profile: {
+    marginLeft: 'auto',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 10,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.divider,
+  },
+  profileAvatar: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: color.accent800,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileInitials: { fontFamily: font.headingSemibold, fontSize: 11, color: color.accent100 },
+  profileName: { fontFamily: font.body, fontSize: 13, color: color.text },
+  navRow: { paddingHorizontal: 16, paddingBottom: 10, gap: 4 },
+  navItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  navItemOn: {
+    backgroundColor: 'rgba(145,132,217,0.16)',
+    borderWidth: 1,
+    borderColor: color.accent,
+  },
+  navLabel: { fontFamily: font.heading, fontSize: 13, color: 'rgba(233,233,237,0.68)' },
+  navLabelOn: { color: color.accent200 },
+});

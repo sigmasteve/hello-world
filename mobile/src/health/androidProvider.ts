@@ -1,0 +1,168 @@
+import {
+  getGrantedPermissions,
+  getSdkStatus,
+  initialize,
+  readRecords,
+  requestPermission,
+} from 'react-native-health-connect';
+import type {
+  DailySteps,
+  HealthAuthStatus,
+  HealthProvider,
+  HealthSnapshot,
+  WorkoutSample,
+} from './types';
+
+// Real Health Connect integration. Requires a custom dev client or a
+// standalone build (`npx expo prebuild` + `expo run:android`, or an EAS
+// dev-client build) — Health Connect is a native module and is NOT
+// available in Expo Go. Also needs the `android.permission.health.READ_*`
+// entries in app.json's `android.permissions` and the Health Connect app
+// installed on the test device/emulator (Android 14+ ships it in-box;
+// earlier versions install it from Play).
+
+const PERMISSIONS = [
+  { accessType: 'read' as const, recordType: 'Steps' as const },
+  { accessType: 'read' as const, recordType: 'Distance' as const },
+  { accessType: 'read' as const, recordType: 'HeartRate' as const },
+  { accessType: 'read' as const, recordType: 'Weight' as const },
+  { accessType: 'read' as const, recordType: 'ExerciseSession' as const },
+];
+
+let initialized = false;
+async function ensureInitialized(): Promise<boolean> {
+  if (initialized) return true;
+  initialized = await initialize();
+  return initialized;
+}
+
+function metersToMiles(m: number): number {
+  return m / 1609.344;
+}
+function kgToLb(kg: number): number {
+  return kg * 2.20462;
+}
+function startOfDayIso(): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+function daysAgoIso(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+export const androidHealthProvider: HealthProvider = {
+  platform: 'android',
+  platformLabel: 'Health Connect',
+
+  async isAvailable(): Promise<boolean> {
+    // 3 === SDK_AVAILABLE in the native enum; a non-throwing call this
+    // early also confirms the native module actually linked.
+    try {
+      const status = await getSdkStatus();
+      return status === 3;
+    } catch {
+      return false;
+    }
+  },
+
+  async getAuthorizationStatus(): Promise<HealthAuthStatus> {
+    if (!(await ensureInitialized())) return 'unavailable';
+    const granted = await getGrantedPermissions();
+    const haveAll = PERMISSIONS.every((p) =>
+      granted.some((g) => 'recordType' in g && g.recordType === p.recordType),
+    );
+    return haveAll ? 'authorized' : 'not-determined';
+  },
+
+  async requestAuthorization(): Promise<HealthAuthStatus> {
+    if (!(await ensureInitialized())) return 'unavailable';
+    const granted = await requestPermission(PERMISSIONS);
+    const haveAll = PERMISSIONS.every((p) =>
+      granted.some((g) => 'recordType' in g && g.recordType === p.recordType),
+    );
+    return haveAll ? 'authorized' : 'denied';
+  },
+
+  async getSnapshot(): Promise<HealthSnapshot> {
+    await ensureInitialized();
+    const todayFilter = { operator: 'between' as const, startTime: startOfDayIso(), endTime: new Date().toISOString() };
+
+    const [steps, distance, heartRate, weight] = await Promise.all([
+      readRecords('Steps', { timeRangeFilter: todayFilter }),
+      readRecords('Distance', { timeRangeFilter: todayFilter }),
+      readRecords('HeartRate', { timeRangeFilter: todayFilter }),
+      readRecords('Weight', { timeRangeFilter: { operator: 'before', endTime: new Date().toISOString() } }),
+    ]);
+
+    const totalSteps = steps.records.reduce((sum, r) => sum + r.count, 0);
+    const totalDistanceMi = distance.records.reduce((sum, r) => sum + metersToMiles(r.distance.inMeters), 0);
+    const restingSamples = heartRate.records.flatMap((r) => r.samples.map((s) => s.beatsPerMinute));
+    const latestWeightKg = weight.records.at(-1)?.weight.inKilograms;
+
+    return {
+      stepsToday: Math.round(totalSteps),
+      stepsGoal: 10000,
+      distanceTodayMi: Math.round(totalDistanceMi * 10) / 10,
+      restingHeartRateBpm: restingSamples.length
+        ? Math.round(restingSamples.reduce((a, b) => a + b, 0) / restingSamples.length)
+        : null,
+      latestWeightLb: latestWeightKg != null ? Math.round(kgToLb(latestWeightKg) * 10) / 10 : null,
+      source: 'Health Connect',
+      lastSyncedAt: new Date(),
+    };
+  },
+
+  async getWeeklySteps(): Promise<DailySteps[]> {
+    await ensureInitialized();
+    const out: DailySteps[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const start = daysAgoIso(i);
+      const endDate = new Date(start);
+      endDate.setDate(endDate.getDate() + 1);
+      const { records } = await readRecords('Steps', {
+        timeRangeFilter: { operator: 'between', startTime: start, endTime: endDate.toISOString() },
+      });
+      const total = records.reduce((sum, r) => sum + r.count, 0);
+      out.push({
+        date: new Date(start).toLocaleDateString(undefined, { weekday: 'short' }),
+        steps: Math.round(total),
+      });
+    }
+    return out;
+  },
+
+  async getHeartRateSeries(days: number): Promise<number[]> {
+    await ensureInitialized();
+    const { records } = await readRecords('HeartRate', {
+      timeRangeFilter: { operator: 'between', startTime: daysAgoIso(days - 1), endTime: new Date().toISOString() },
+    });
+    return records.flatMap((r) => r.samples.map((s) => s.beatsPerMinute));
+  },
+
+  async getWeightSeries(days: number): Promise<number[]> {
+    await ensureInitialized();
+    const { records } = await readRecords('Weight', {
+      timeRangeFilter: { operator: 'between', startTime: daysAgoIso(days - 1), endTime: new Date().toISOString() },
+    });
+    return records.map((r) => Math.round(kgToLb(r.weight.inKilograms) * 10) / 10);
+  },
+
+  async getRecentWorkouts(limit: number): Promise<WorkoutSample[]> {
+    await ensureInitialized();
+    const { records } = await readRecords('ExerciseSession', {
+      timeRangeFilter: { operator: 'between', startTime: daysAgoIso(30), endTime: new Date().toISOString() },
+      ascendingOrder: false,
+      pageSize: limit,
+    });
+    return records.slice(0, limit).map((r, i) => ({
+      id: r.metadata?.id ?? String(i),
+      name: r.title ?? r.exerciseType?.toString() ?? 'Workout',
+      when: new Date(r.startTime),
+      source: 'Health Connect',
+    }));
+  },
+};
