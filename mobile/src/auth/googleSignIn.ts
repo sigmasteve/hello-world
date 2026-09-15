@@ -15,7 +15,20 @@ import { GoogleSignin } from '@react-native-google-signin/google-signin';
 // goes into the Supabase dashboard, never into this app.
 const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
-export const isGoogleSignInConfigured = Boolean(webClientId);
+// iOS's native SDK needs its own OAuth client — separate from
+// webClientId above, and not optional, it has nothing to do with
+// audiencing the ID token. Without a GoogleService-Info.plist (a
+// Firebase artifact this project doesn't use), the SDK has no other way
+// to learn its client ID and fails configure() outright:
+// "RNGoogleSignin: failed to determine clientID". Android doesn't need
+// an equivalent — its OAuth client is looked up from the app's package
+// name + signing certificate registered in Google Cloud Console, not
+// passed here.
+const iosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+
+export const isGoogleSignInConfigured = Platform.OS === 'ios'
+  ? Boolean(webClientId && iosClientId)
+  : Boolean(webClientId);
 
 let configured = false;
 function ensureConfigured(): void {
@@ -23,7 +36,10 @@ function ensureConfigured(): void {
   if (!webClientId) {
     throw new Error('Google Sign-In needs EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID set — see mobile/README.md.');
   }
-  GoogleSignin.configure({ webClientId, scopes: ['email', 'profile'] });
+  if (Platform.OS === 'ios' && !iosClientId) {
+    throw new Error('Google Sign-In needs EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID set on iOS — see mobile/README.md.');
+  }
+  GoogleSignin.configure({ webClientId, iosClientId, scopes: ['email', 'profile'] });
   configured = true;
 }
 

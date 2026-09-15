@@ -105,27 +105,43 @@ Cloud Console](https://console.cloud.google.com/apis/credentials):
      ID**; this is what audiences the ID token Google issues, so both
      the app and Supabase have to agree on it.
    - **iOS** — Bundle ID `app.hound.mobile` (`app.json`'s
-     `ios.bundleIdentifier`). Copy its **Client ID**, then reverse it
-     (`1234-abc.apps.googleusercontent.com` →
-     `com.googleusercontent.apps.1234-abc`) into `app.json`'s
-     `plugins` entry for `@react-native-google-signin/google-signin`,
-     replacing the `REPLACE_WITH_YOUR_IOS_CLIENT_ID` placeholder. This
-     is a static app.json edit, not an env var — it has to exist before
-     `expo prebuild` runs.
+     `ios.bundleIdentifier`). Copy its **Client ID** — you need it in
+     *two* different forms, in two different places:
+     - Reversed (`1234-abc.apps.googleusercontent.com` →
+       `com.googleusercontent.apps.1234-abc`) into `app.json`'s
+       `plugins` entry for `@react-native-google-signin/google-signin`,
+       replacing the `REPLACE_WITH_YOUR_IOS_CLIENT_ID` placeholder. This
+       is a static app.json edit, not an env var — it has to exist
+       before `expo prebuild` runs. It registers the URL scheme iOS
+       uses for the sign-in redirect to come back into the app.
+     - Plain, as `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` in `.env` (step 2
+       below). The native SDK's `configure()` call needs this directly
+       — without it, iOS throws `RNGoogleSignin: failed to determine
+       clientID` the moment you tap the button, since there's no
+       `GoogleService-Info.plist` (a Firebase artifact) for it to read
+       instead.
    - **Android** — package name `app.hound.mobile` plus your signing
      certificate's SHA-1 fingerprint (`keytool -list -v -keystore
      ~/.android/debug.keystore` for a debug build; get release's from
      wherever you manage that keystore, or from EAS Build's credentials
-     if you use it).
-2. `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `.env` — the **Web** client ID
-   from step 1, not the iOS or Android one.
+     if you use it). Nothing from this one goes into `.env` or
+     `app.json` — Android's native SDK looks the client up from the
+     package name + SHA-1 you registered, not from anything the app
+     passes it.
+2. In `.env`: `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` (the **Web** client ID)
+   and `EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` (the **iOS** client ID, plain
+   form — see above). Both are required on iOS; Android only needs the
+   Web one.
 3. Supabase dashboard → Authentication → Providers → Google: paste in
-   that same Web client ID plus its client secret, enable.
+   the **Web** client ID plus its client secret, enable. (The iOS client
+   ID doesn't go here — Supabase only ever sees the Web one, since
+   that's what audiences the ID token.)
 4. Needs a native rebuild either way (`npx expo prebuild --clean` +
    `expo run:ios` / `expo run:android`) — this is a native module, so it
    doesn't exist in Expo Go and can't be picked up by just reloading JS.
 
-Without `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` set, tapping Google shows a
+Without `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` set (either platform) or
+`EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID` (iOS only), tapping Google shows a
 clear "needs this env var" error (`src/auth/googleSignIn.ts`) rather than
 crashing or silently falling back — this is independent of whether
 Supabase itself is configured, since the token exchange
