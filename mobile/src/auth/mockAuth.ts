@@ -16,7 +16,7 @@ function initialsFor(name: string): string {
 }
 
 const PROVIDER_PROFILE: Record<Exclude<AuthProviderId, 'email'>, AuthUser> = {
-  google: { name: 'Jordan Lee', email: 'jordan.lee@gmail.com', initials: 'JL', provider: 'google' },
+  google: { name: 'Stephen Washington', email: 'sigmasteve@gmail.com', initials: 'SW', provider: 'google' },
   facebook: { name: 'Jordan Lee', email: 'jordan.lee@fb.example', initials: 'JL', provider: 'facebook' },
   apple: { name: 'Jordan Lee', email: 'jordan.lee@icloud.com', initials: 'JL', provider: 'apple' },
 };
