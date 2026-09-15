@@ -12,10 +12,14 @@ function delay<T>(value: T, ms = 700): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
 }
 
+// `id` is a fixed placeholder, not a real identity — nothing on the mock
+// path ever reads challenge data keyed by user id (isSupabaseConfigured
+// gates all of that), so it only needs to be present for AuthUser's
+// shape, not meaningful.
 const PROVIDER_PROFILE: Record<Exclude<AuthProviderId, 'email'>, AuthUser> = {
-  google: { name: 'Stephen Washington', email: 'sigmasteve@gmail.com', initials: 'SW', provider: 'google' },
-  facebook: { name: 'Jordan Lee', email: 'jordan.lee@fb.example', initials: 'JL', provider: 'facebook' },
-  apple: { name: 'Jordan Lee', email: 'jordan.lee@icloud.com', initials: 'JL', provider: 'apple' },
+  google: { id: 'mock-google-user', name: 'Stephen Washington', email: 'sigmasteve@gmail.com', initials: 'SW', provider: 'google' },
+  facebook: { id: 'mock-facebook-user', name: 'Jordan Lee', email: 'jordan.lee@fb.example', initials: 'JL', provider: 'facebook' },
+  apple: { id: 'mock-apple-user', name: 'Jordan Lee', email: 'jordan.lee@icloud.com', initials: 'JL', provider: 'apple' },
 };
 
 // A couple of emails a demo can bump into on purpose, so the error states
@@ -40,7 +44,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
     throw new Error('Incorrect email or password.');
   }
   const name = normalized === KNOWN_ACCOUNT.email ? 'Jordan Lee' : email.split('@')[0];
-  return { name, email, initials: initialsFor(name), provider: 'email' };
+  return { id: 'mock-email-user', name, email, initials: initialsFor(name), provider: 'email' };
 }
 
 export async function signUpWithEmail({ name, email, password }: SignUpInput): Promise<AuthUser> {
@@ -48,7 +52,7 @@ export async function signUpWithEmail({ name, email, password }: SignUpInput): P
   if (email.trim().toLowerCase() === KNOWN_ACCOUNT.email) {
     throw new Error('An account already exists for this email.');
   }
-  return { name, email, initials: initialsFor(name), provider: 'email' };
+  return { id: 'mock-email-user', name, email, initials: initialsFor(name), provider: 'email' };
 }
 
 export async function signOut(): Promise<void> {

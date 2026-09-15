@@ -19,6 +19,12 @@ export interface LeaderboardEntry {
   totalDistanceMi: number;
 }
 
+export interface Participant {
+  userId: string;
+  name: string;
+  initials: string;
+}
+
 export interface CreateChallengeInput {
   name: string;
   kind: ChallengeKind;
@@ -32,6 +38,11 @@ export interface ChallengesProvider {
   // src/challenges/present.ts rather than the provider doing it, so a
   // real backend and the sample-data fallback can share one formatter.
   listMyChallenges(): Promise<Challenge[]>;
+  // Every participant, regardless of whether they've recorded any
+  // progress yet — a freshly created challenge has participants (at
+  // least its creator) but an empty leaderboard, since nothing calls
+  // recordProgress() yet (see README "What's not implemented").
+  listParticipants(challengeId: string): Promise<Participant[]>;
   getLeaderboard(challengeId: string): Promise<LeaderboardEntry[]>;
   createChallenge(input: CreateChallengeInput): Promise<Challenge>;
   recordProgress(challengeId: string, steps: number, distanceMi: number): Promise<void>;

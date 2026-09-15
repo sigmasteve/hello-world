@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Challenge, ChallengesProvider, CreateChallengeInput, LeaderboardEntry } from './types';
+import type { Challenge, ChallengesProvider, CreateChallengeInput, LeaderboardEntry, Participant } from './types';
 
 function requireClient() {
   if (!supabase) throw new Error('Supabase is not configured.');
@@ -45,6 +45,19 @@ export const supabaseChallengesProvider: ChallengesProvider = {
       .order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
     return (data ?? []).map(rowToChallenge);
+  },
+
+  async listParticipants(challengeId: string): Promise<Participant[]> {
+    const client = requireClient();
+    const { data, error } = await client
+      .from('challenge_participants')
+      .select('user_id, profiles(name, initials)')
+      .eq('challenge_id', challengeId);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => {
+      const profile = row.profiles as unknown as { name: string; initials: string } | null;
+      return { userId: row.user_id, name: profile?.name ?? 'Someone', initials: profile?.initials ?? '?' };
+    });
   },
 
   async getLeaderboard(challengeId: string): Promise<LeaderboardEntry[]> {

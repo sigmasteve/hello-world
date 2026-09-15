@@ -30,9 +30,9 @@ export async function userFromSession(session: Session, provider: AuthProviderId
     // possible right after a signUp response) — fall back to what the
     // session itself already knows rather than surfacing an error here.
     const name = fallbackEmail.split('@')[0] || 'Hound user';
-    return { name, email: fallbackEmail, initials: initialsFor(name), provider };
+    return { id: session.user.id, name, email: fallbackEmail, initials: initialsFor(name), provider };
   }
-  return { name: data.name, email: data.email, initials: data.initials, provider };
+  return { id: session.user.id, name: data.name, email: data.email, initials: data.initials, provider };
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<AuthUser> {

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   CaretRightIcon,
@@ -13,6 +13,10 @@ import { text } from '../theme/text';
 import { color, font } from '../theme/tokens';
 import { CHALLENGES, type ChallengeCard } from '../data/sampleData';
 import { CHALLENGE_KIND_ICON } from '../data/challengeIcons';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { supabaseChallengesProvider } from '../challenges/supabaseChallenges';
+import { toChallengeCard } from '../challenges/present';
+import { useAuth } from '../auth/AuthContext';
 
 export function ChallengesScreen({
   onOpenHunt,
@@ -21,6 +25,40 @@ export function ChallengesScreen({
   onOpenHunt: () => void;
   onCreate: () => void;
 }) {
+  const { user } = useAuth();
+  // null = still showing the sample fallback (either Supabase isn't
+  // configured, or the real fetch hasn't resolved yet); once set, it
+  // fully replaces the sample list — a real backend shouldn't keep
+  // demo content around next to real data. Same "never break the
+  // screen, just fall back" philosophy as src/health's mock fallback.
+  const [liveCards, setLiveCards] = useState<ChallengeCard[] | null>(null);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    (async () => {
+      const challenges = await supabaseChallengesProvider.listMyChallenges();
+      const cards = await Promise.all(
+        challenges.map(async (c) => {
+          const [participants, leaderboard] = await Promise.all([
+            supabaseChallengesProvider.listParticipants(c.id),
+            supabaseChallengesProvider.getLeaderboard(c.id),
+          ]);
+          return toChallengeCard(c, participants, leaderboard, user?.id ?? null);
+        }),
+      );
+      if (!cancelled) setLiveCards(cards);
+    })().catch(() => {
+      // Stay on the sample fallback on any failure — this screen never
+      // shows an error state, it just quietly doesn't upgrade.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const challenges = liveCards ?? CHALLENGES;
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
@@ -40,9 +78,13 @@ export function ChallengesScreen({
         </View>
       </Card>
 
-      {CHALLENGES.map((c) => (
+      {challenges.map((c) => (
         <ChallengeRow key={c.id} c={c} onPress={c.target === 'hunt' ? onOpenHunt : undefined} />
       ))}
+
+      {liveCards && liveCards.length === 0 && (
+        <Text style={styles.emptyNote}>No challenges yet — start one above.</Text>
+      )}
 
       <Text style={styles.finishedLabel}>Finished</Text>
       <View style={styles.finishedRow}>
@@ -96,6 +138,7 @@ const styles = StyleSheet.create({
   rowSub: { fontSize: 12.5, color: 'rgba(233,233,237,0.55)' },
   rowStat: { fontFamily: font.heading, fontSize: 18, color: color.text },
   rowStatLabel: { fontSize: 11, color: 'rgba(233,233,237,0.55)' },
+  emptyNote: { fontSize: 13, color: 'rgba(233,233,237,0.55)', textAlign: 'center', paddingVertical: 8 },
   finishedLabel: { fontSize: 15, color: 'rgba(233,233,237,0.7)', marginTop: 8 },
   finishedRow: {
     flexDirection: 'row',

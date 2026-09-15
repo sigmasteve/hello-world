@@ -156,18 +156,29 @@ feature this project doesn't have, so it's a real limitation, not
 something worth working around.
 
 **Challenge data**: `src/challenges/supabaseChallenges.ts` implements
-`listMyChallenges`, `getLeaderboard`, `createChallenge`, and
-`recordProgress` against the schema above. Right now only
-`CreateScreen.tsx`'s "Start the challenge" button calls it (creating a
-real row + joining yourself as a participant, when a project is
-configured) — the Challenges list and Hunt screen still render
-`src/data/sampleData.ts`'s static content either way. Wiring their
-*reads* to real data is a deliberate follow-up, not an oversight: it needs
-a formatter that turns raw rows into the same hand-tuned display strings
-(colors, "Day 9 of 21", per-person avatar tints) the sample data already
-has baked in, and this sandbox has no live Supabase project to verify
-that formatter's output against — see "What this sandbox could and
-couldn't verify".
+`listMyChallenges`, `listParticipants`, `getLeaderboard`,
+`createChallenge`, and `recordProgress` against the schema above.
+`CreateScreen.tsx`'s "Start the challenge" button calls `createChallenge`
+(creating a real row + joining yourself as a participant, when a project
+is configured), and — once it lands you back on the Challenges tab —
+`ChallengesScreen.tsx` calls `listMyChallenges` + `listParticipants` +
+`getLeaderboard` per challenge and renders the result through
+`src/challenges/present.ts`, a formatter that turns those raw rows into
+the same display shape (`ChallengeCard`: colors, "Day 9 of 21", per-person
+avatar tints) `src/data/sampleData.ts` hand-authors for its static
+content — so `<ChallengeRow>` doesn't care which one it's rendering. Once
+Supabase is configured and that fetch succeeds, it fully replaces the
+sample list rather than merging with it (a real backend shouldn't leave
+fake demo challenges sitting next to real ones); on any failure, or with
+Supabase unconfigured, the screen quietly stays on the sample fallback,
+same as `src/health`'s pattern.
+
+Since nothing calls `recordProgress()` yet (see "What's not
+implemented"), a freshly created challenge always shows "no data yet" —
+that's `present.ts` being honest about an empty leaderboard, not a bug.
+The Hunt screen and the two static blocks on the Challenges screen
+(the "Priya invited you…" card, the "Finished" section) are unrelated to
+this and still fully static — see "What's not implemented".
 
 ## The auth layer
 
@@ -359,16 +370,18 @@ generates the Info.plist entry it says it will."
 
 ## What's not implemented
 
-Challenges, friends, and invites still render `src/data/sampleData.ts`'s
-static content — the Challenges list, Hunt screen, and Friends screen
-don't read from Supabase yet, even when a project is configured, though
-the backend to back them exists now (see "The backend (Supabase)"). The
-one exception is `CreateScreen.tsx`, which does persist a real challenge
-when configured. HealthKit/Health Connect only cover *your own* metrics
-regardless; actually syncing a friend's steps into a shared leaderboard
-needs `progress_snapshots` rows written from their device, which nothing
-does yet (`recordProgress()` exists but nothing calls it — that's the
-same follow-up as the leaderboard reads above, from the other direction).
+The Challenges *list* reads real data now (see "The backend (Supabase)"),
+but the Hunt screen and Friends screen still render
+`src/data/sampleData.ts`'s static content unconditionally — there's no
+generic challenge-detail screen yet, so tapping a real challenge row does
+nothing (deliberately; see `present.ts`'s comment on `target`), and
+Friends is unrelated to any of this. The Challenges screen's "Priya
+invited you…" card and "Finished" section are also still static, on
+either data path. HealthKit/Health Connect only ever cover *your own*
+metrics regardless; actually syncing a friend's steps into a shared
+leaderboard needs `progress_snapshots` rows written from their device,
+which nothing does yet (`recordProgress()` exists but nothing calls it —
+which is also why every real challenge currently shows "no data yet").
 
 Facebook/Apple sign-in is wired to real Supabase OAuth calls but needs
 each provider configured in your Supabase dashboard (and, for Apple,
