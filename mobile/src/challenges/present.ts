@@ -1,0 +1,73 @@
+import { CHALLENGE_TYPES, type ChallengeCard } from '../data/sampleData';
+import { TINT_A, TINT_N } from '../theme/tokens';
+import type { Challenge, LeaderboardEntry, Participant } from './types';
+
+// Turns a raw challenge + who's in it + what they've logged into the same
+// display shape src/data/sampleData.ts hand-authors for the sample
+// content — ChallengesScreen.tsx's <ChallengeRow> renders either without
+// caring which one it got. Keeping this formatting out of
+// supabaseChallenges.ts means the provider only ever returns plain rows.
+export function toChallengeCard(
+  challenge: Challenge,
+  participants: Participant[],
+  leaderboard: LeaderboardEntry[],
+  currentUserId: string | null,
+): ChallengeCard {
+  const typeDef = CHALLENGE_TYPES.find((t) => t.id === challenge.kind);
+  const kindLabel = typeDef?.name ?? challenge.kind;
+  const tint = typeDef?.tint ?? TINT_N;
+  const iconColor = typeDef?.iconColor ?? '#e9e9ed';
+
+  const daysElapsed = Math.min(
+    challenge.durationDays,
+    Math.max(1, Math.floor((Date.now() - new Date(challenge.startsAt).getTime()) / 86_400_000) + 1),
+  );
+  const peopleCount = participants.length;
+  const sub = `Day ${daysElapsed} of ${challenge.durationDays} · ${peopleCount} ${peopleCount === 1 ? 'person' : 'people'}`;
+
+  // Nothing calls recordProgress() yet (see README "What's not
+  // implemented"), so a freshly created challenge always has an empty
+  // leaderboard even though it has participants — this is the honest
+  // "no one's logged anything yet" state, not a bug to paper over.
+  let stat = '—';
+  let statLabel = 'no data yet';
+  if (leaderboard.length > 0) {
+    const ranked = [...leaderboard].sort((a, b) => b.totalSteps - a.totalSteps);
+    const myRank = currentUserId ? ranked.findIndex((p) => p.userId === currentUserId) : -1;
+    if (myRank >= 0) {
+      stat = ordinal(myRank + 1);
+      statLabel = `of ${ranked.length} · ${ranked[myRank].totalSteps.toLocaleString()} steps`;
+    } else {
+      stat = String(ranked.length);
+      statLabel = ranked.length === 1 ? 'person logging' : 'people logging';
+    }
+  }
+
+  return {
+    id: challenge.id,
+    name: challenge.name,
+    kind: challenge.kind,
+    kindLabel,
+    sub,
+    stat,
+    statLabel,
+    tint,
+    iconColor,
+    people: participants.slice(0, 4).map((p) => ({
+      initials: p.initials,
+      tint: p.userId === currentUserId ? TINT_A : TINT_N,
+    })),
+    // No generic detail screen exists yet for a real challenge of any
+    // kind — HuntScreen is one specific hardcoded storyline, not a
+    // template. 'challenges' (i.e. anything but 'hunt') makes
+    // ChallengesScreen's `c.target === 'hunt' ? onOpenHunt : undefined`
+    // leave the row un-tappable rather than open unrelated content.
+    target: 'challenges',
+  };
+}
+
+function ordinal(n: number): string {
+  const suffixes = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return `${n}${suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0]}`;
+}

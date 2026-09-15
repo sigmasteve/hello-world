@@ -86,7 +86,15 @@ export function RootNavigator() {
               {({ navigation }) => (
                 <CreateScreen
                   onCancel={() => navigation.goBack()}
-                  onFinish={() => navigation.replace('Hunt')}
+                  // Used to always go to the static Hunt screen, regardless
+                  // of what kind of challenge (or name) was actually
+                  // created — every real challenge landed on the same
+                  // hardcoded "Marcus is hunting you" content with no
+                  // connection to what the user just made. Back to the
+                  // Challenges tab instead, where ChallengesScreen's real
+                  // read (src/challenges/present.ts) shows the actual new
+                  // challenge.
+                  onFinish={() => navigation.navigate('Main', { tab: 'challenges' })}
                 />
               )}
             </Stack.Screen>
