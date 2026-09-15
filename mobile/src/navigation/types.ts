@@ -7,4 +7,5 @@ export type RootStackParamList = {
   Main: { tab?: MainTab } | undefined;
   Hunt: undefined;
   Create: undefined;
+  ChallengeDetail: { challengeId: string };
 };

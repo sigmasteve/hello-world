@@ -73,7 +73,12 @@ export interface ChallengeCard {
   tint: string;
   iconColor: string;
   people: { initials: string; tint: string }[];
-  target: 'hunt' | 'challenges';
+  // 'hunt' opens the static Hunt screen (the one hardcoded demo
+  // storyline); 'detail' opens the generic ChallengeDetailScreen for a
+  // real, Supabase-backed challenge (see src/challenges/present.ts) —
+  // only real cards ever use it, since sample cards have no matching row
+  // to fetch; 'challenges' means "not tappable" (the other sample cards).
+  target: 'hunt' | 'challenges' | 'detail';
 }
 
 export const CHALLENGES: ChallengeCard[] = [

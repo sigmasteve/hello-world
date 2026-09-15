@@ -7,6 +7,7 @@ import type { RootStackParamList } from './types';
 import { MainScreen } from '../screens/MainScreen';
 import { HuntScreen } from '../screens/HuntScreen';
 import { CreateScreen } from '../screens/CreateScreen';
+import { ChallengeDetailScreen } from '../screens/ChallengeDetailScreen';
 import { WelcomeScreen } from '../screens/auth/WelcomeScreen';
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { SignUpScreen } from '../screens/auth/SignUpScreen';
@@ -95,6 +96,14 @@ export function RootNavigator() {
                   // read (src/challenges/present.ts) shows the actual new
                   // challenge.
                   onFinish={() => navigation.navigate('Main', { tab: 'challenges' })}
+                />
+              )}
+            </Stack.Screen>
+            <Stack.Screen name="ChallengeDetail" options={{ animation: 'slide_from_right' }}>
+              {({ navigation, route }) => (
+                <ChallengeDetailScreen
+                  challengeId={route.params.challengeId}
+                  onBack={() => navigation.navigate('Main', { tab: 'challenges' })}
                 />
               )}
             </Stack.Screen>
