@@ -1,0 +1,125 @@
+import { supabase } from '../lib/supabase';
+import type { Challenge, ChallengesProvider, CreateChallengeInput, LeaderboardEntry } from './types';
+
+function requireClient() {
+  if (!supabase) throw new Error('Supabase is not configured.');
+  return supabase;
+}
+
+async function requireUserId(): Promise<string> {
+  const { data } = await requireClient().auth.getUser();
+  if (!data.user) throw new Error('Sign in to do that.');
+  return data.user.id;
+}
+
+interface ChallengeRow {
+  id: string;
+  name: string;
+  kind: Challenge['kind'];
+  created_by: string;
+  duration_days: number;
+  starts_at: string;
+  ends_at: string;
+  daily_goal_steps: number | null;
+}
+
+function rowToChallenge(row: ChallengeRow): Challenge {
+  return {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    createdBy: row.created_by,
+    durationDays: row.duration_days,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    dailyGoalSteps: row.daily_goal_steps,
+  };
+}
+
+export const supabaseChallengesProvider: ChallengesProvider = {
+  async listMyChallenges(): Promise<Challenge[]> {
+    const client = requireClient();
+    const { data, error } = await client
+      .from('challenges')
+      .select('id, name, kind, created_by, duration_days, starts_at, ends_at, daily_goal_steps')
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(rowToChallenge);
+  },
+
+  async getLeaderboard(challengeId: string): Promise<LeaderboardEntry[]> {
+    const client = requireClient();
+    // Aggregated client-side rather than via a Postgres view/RPC — the
+    // per-challenge row count is small (one row per participant per day),
+    // and keeping the aggregation in JS means the schema stays plain
+    // tables, nothing to keep in sync on top of it.
+    const { data, error } = await client
+      .from('progress_snapshots')
+      .select('user_id, steps, distance_mi, profiles(name, initials)')
+      .eq('challenge_id', challengeId);
+    if (error) throw new Error(error.message);
+
+    const totals = new Map<string, LeaderboardEntry>();
+    for (const row of data ?? []) {
+      const profile = row.profiles as unknown as { name: string; initials: string } | null;
+      const existing = totals.get(row.user_id);
+      if (existing) {
+        existing.totalSteps += row.steps;
+        existing.totalDistanceMi += Number(row.distance_mi);
+      } else {
+        totals.set(row.user_id, {
+          userId: row.user_id,
+          name: profile?.name ?? 'Someone',
+          initials: profile?.initials ?? '?',
+          totalSteps: row.steps,
+          totalDistanceMi: Number(row.distance_mi),
+        });
+      }
+    }
+    return Array.from(totals.values()).sort((a, b) => b.totalSteps - a.totalSteps);
+  },
+
+  async createChallenge({ name, kind, durationDays, dailyGoalSteps }: CreateChallengeInput): Promise<Challenge> {
+    const client = requireClient();
+    const userId = await requireUserId();
+    const startsAt = new Date();
+    const endsAt = new Date(startsAt.getTime() + durationDays * 86_400_000);
+
+    const { data, error } = await client
+      .from('challenges')
+      .insert({
+        name,
+        kind,
+        created_by: userId,
+        duration_days: durationDays,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+        daily_goal_steps: dailyGoalSteps ?? null,
+      })
+      .select('id, name, kind, created_by, duration_days, starts_at, ends_at, daily_goal_steps')
+      .single();
+    if (error) throw new Error(error.message);
+
+    // The creator is a participant too — nothing else adds this row
+    // automatically.
+    const { error: joinError } = await client
+      .from('challenge_participants')
+      .insert({ challenge_id: data.id, user_id: userId });
+    if (joinError) throw new Error(joinError.message);
+
+    return rowToChallenge(data);
+  },
+
+  async recordProgress(challengeId: string, steps: number, distanceMi: number): Promise<void> {
+    const client = requireClient();
+    const userId = await requireUserId();
+    const day = new Date().toISOString().slice(0, 10);
+    const { error } = await client
+      .from('progress_snapshots')
+      .upsert(
+        { challenge_id: challengeId, user_id: userId, day, steps, distance_mi: distanceMi },
+        { onConflict: 'challenge_id,user_id,day' },
+      );
+    if (error) throw new Error(error.message);
+  },
+};

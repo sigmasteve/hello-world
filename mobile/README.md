@@ -32,9 +32,74 @@ src/
   screens/auth/ Welcome, Login, SignUp screens (see "The auth layer")
   auth/         the sign-in abstraction (see below)
   health/       the HealthKit/Health Connect abstraction (see below)
+  challenges/   the challenge/competition data-access layer (see "The
+                backend (Supabase)")
+  lib/          third-party client setup — currently just supabase.ts
   data/         sample data for the social layer (challenges, friends) —
-                there's no backend, see "What's not implemented"
+                still what most screens render; see "What's not implemented"
+supabase/
+  migrations/   SQL to run against your own Supabase project — nothing in
+                this repo runs it for you, see "The backend (Supabase)"
 ```
+
+## The backend (Supabase)
+
+Challenge/competition data (challenges, who's in them, daily progress) and
+real sign-in both live in a [Supabase](https://supabase.com) project —
+Postgres, auth, and realtime behind one client library, chosen so the app
+doesn't need a server of its own. **No project is included** — you point
+the app at your own:
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Project Settings → API: copy the **Project URL** and **anon public**
+   key.
+3. `cp .env.example .env` in `mobile/` and paste them in as
+   `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`. Expo
+   inlines `EXPO_PUBLIC_*` vars into the JS bundle at build/start time —
+   restart `expo start` after editing `.env`, since it's only read once at
+   startup.
+4. SQL Editor → New query → paste in
+   `supabase/migrations/0001_challenges_schema.sql` → Run. This creates
+   `profiles`, `challenges`, `challenge_participants`, and
+   `progress_snapshots`, all with Row Level Security policies scoping each
+   table to "am I a participant of this challenge" — see the comments in
+   that file for the exact policies.
+
+With those two env vars unset (the default — nothing above is required to
+run the app), everything falls back to what it did before: mock auth
+(`src/auth/mockAuth.ts`) and static sample data. This is the same
+fallback pattern `src/health` uses for a native module that isn't linked —
+`isSupabaseConfigured` (`src/lib/supabase.ts`) is the single switch every
+caller checks.
+
+**Email/password auth is fully wired** (`src/auth/supabaseAuth.ts`) — sign
+up and log in for real once a project is configured, no further setup
+needed. **Google/Facebook/Apple are wired in code but need provider setup
+you have to do yourself**: each one requires creating an OAuth app in that
+provider's own developer console (Google Cloud Console, Meta for
+Developers, Apple Developer — separate accounts Claude can't create on
+your behalf) and pasting the resulting client ID/secret into Supabase's
+Authentication → Providers page. Until a given provider is enabled there,
+tapping its button fails with a clear error
+("Sign-in did not return a session — is this provider enabled in
+Supabase?") rather than crashing. Apple in particular: App Store review
+expects native Sign in with Apple (`expo-apple-authentication`) rather
+than the generic web-OAuth flow used here for all three buttons — that's
+a follow-up, not done in this pass (see "What's not implemented").
+
+**Challenge data**: `src/challenges/supabaseChallenges.ts` implements
+`listMyChallenges`, `getLeaderboard`, `createChallenge`, and
+`recordProgress` against the schema above. Right now only
+`CreateScreen.tsx`'s "Start the challenge" button calls it (creating a
+real row + joining yourself as a participant, when a project is
+configured) — the Challenges list and Hunt screen still render
+`src/data/sampleData.ts`'s static content either way. Wiring their
+*reads* to real data is a deliberate follow-up, not an oversight: it needs
+a formatter that turns raw rows into the same hand-tuned display strings
+(colors, "Day 9 of 21", per-person avatar tints) the sample data already
+has baked in, and this sandbox has no live Supabase project to verify
+that formatter's output against — see "What this sandbox could and
+couldn't verify".
 
 ## The auth layer
 
@@ -43,24 +108,29 @@ or the main app, switched on `useAuth().status` — the standard React
 Navigation pattern for gating an app behind sign-in (swapping which
 `Stack.Screen`s are mounted, rather than navigating within one shared
 stack, so there's no back button into Welcome once you're signed in).
+`useAuth().initializing` covers the brief async gap while a Supabase
+session is being restored from storage on cold start; `RootNavigator`
+shows a spinner rather than flashing Welcome first.
 
-- `src/auth/AuthContext.tsx` — `useAuth()` exposes `status`, `user`, and
-  `signInWithGoogle` / `signInWithFacebook` / `signInWithApple` /
-  `signInWithEmail` / `signUpWithEmail` / `signOut`.
-- `src/auth/mockAuth.ts` — **entirely mocked**, matching the rest of the
-  app's "no backend yet" state (see "What's not implemented"). The three
-  provider buttons resolve to a fake profile after a simulated delay, with
-  no real Google/Facebook/Apple SDK involved. Email sign-in/sign-up do
-  basic client-side validation plus a couple of deliberately-reachable
-  failure paths (`jordan.lee@gmail.com` / a password under 6 characters)
-  so the error states aren't purely theoretical. Swapping in a real
-  backend (Firebase Auth, Auth0, a custom API, or the real
-  `expo-auth-session` / `@react-native-google-signin` / `expo-apple-authentication`
-  SDKs) means rewriting `mockAuth.ts` — `AuthContext.tsx` and every screen
-  are written against its function signatures, not its implementation.
-- No session persistence: signing out or reloading the app resets to
-  signed-out, since there's no `AsyncStorage`/`SecureStore` layer yet and
-  nothing to restore a session from even if there were.
+- `src/auth/AuthContext.tsx` — `useAuth()` exposes `status`, `user`,
+  `initializing`, and `signInWithGoogle` / `signInWithFacebook` /
+  `signInWithApple` / `signInWithEmail` / `signUpWithEmail` / `signOut`.
+  It picks `supabaseAuth.ts` or `mockAuth.ts` once, at import time, based
+  on `isSupabaseConfigured` — every screen calls the same functions
+  either way.
+- `src/auth/supabaseAuth.ts` — real Supabase Auth, used whenever a
+  project is configured (see "The backend (Supabase)" above).
+- `src/auth/mockAuth.ts` — used otherwise. The three provider buttons
+  resolve to a fake profile after a simulated delay, with no real
+  Google/Facebook/Apple SDK involved. Email sign-in/sign-up do basic
+  client-side validation plus a couple of deliberately-reachable failure
+  paths (a known email, a password under 6 characters) so the error
+  states aren't purely theoretical.
+- Session persistence: real, but only on the Supabase path — it stores
+  the session in `AsyncStorage` and restores it on cold start
+  (`AuthContext.tsx`'s `useEffect`). Mock auth never persisted anything
+  and still doesn't; signing out or reloading the app while unconfigured
+  always resets to signed-out.
 
 ## The health data layer
 
@@ -173,26 +243,39 @@ emulator, and no physical device attached. What *was* verified here:
   and `react-native-health-connect`), so there's no import/resolution error
   waiting to surface on a real build.
 - The full UI, every screen, and every interaction (wizard steps, slider,
-  toggles, tab switches, navigation) — visually verified end-to-end via
-  `expo start --web` in a real browser, running against the mock health
-  provider.
+  toggles, tab switches, navigation, the full sign-in flow, the Create
+  wizard) — visually verified end-to-end via `expo start --web` in a real
+  browser, running against mock health data and mock auth (no Supabase
+  project configured).
 
-What was **not** verified, because it requires hardware this sandbox
-doesn't have: an actual HealthKit or Health Connect permission prompt, real
-device sensor data flowing through `iosProvider.ts` / `androidProvider.ts`,
-and native builds (`expo run:ios` / `expo run:android` / EAS). Treat those
-two provider files as carefully-written but untested against the real
-native APIs until someone runs them on a device.
+What was **not** verified, because it requires things this sandbox doesn't
+have: an actual HealthKit or Health Connect permission prompt, real device
+sensor data flowing through `iosProvider.ts` / `androidProvider.ts`, native
+builds (`expo run:ios` / `expo run:android` / EAS), and — new since the
+Supabase integration — anything on the real Supabase code path at all.
+`supabaseAuth.ts` and `supabaseChallenges.ts` are written carefully against
+Supabase's documented client API and the schema in
+`supabase/migrations/0001_challenges_schema.sql` (which the two are kept
+consistent with), and `tsc` and the bundler both accept them, but there is
+no live Supabase project in this sandbox to run a single query against —
+treat both files, and the OAuth redirect flow in particular, as unverified
+until someone runs them against a real project.
 
 ## What's not implemented
 
-Challenges, friends, and invites are still the same static sample data the
-original prototype shipped with (`src/data/sampleData.ts`) — there's no
-backend. HealthKit/Health Connect only cover *your own* metrics; syncing
-challenge state between friends' phones needs a real server, which is a
-separate project.
+Challenges, friends, and invites still render `src/data/sampleData.ts`'s
+static content — the Challenges list, Hunt screen, and Friends screen
+don't read from Supabase yet, even when a project is configured, though
+the backend to back them exists now (see "The backend (Supabase)"). The
+one exception is `CreateScreen.tsx`, which does persist a real challenge
+when configured. HealthKit/Health Connect only cover *your own* metrics
+regardless; actually syncing a friend's steps into a shared leaderboard
+needs `progress_snapshots` rows written from their device, which nothing
+does yet (`recordProgress()` exists but nothing calls it — that's the
+same follow-up as the leaderboard reads above, from the other direction).
 
-Sign-in (`src/auth/`) is UI-complete but backend-mocked: no real Google,
-Facebook, or Apple SDK is wired up, there's no server verifying
-credentials, and nothing persists a session across an app restart. See
-"The auth layer" above for what a real integration needs to replace.
+Google/Facebook/Apple sign-in is wired to real Supabase OAuth calls but
+needs each provider configured in your Supabase dashboard (and, for
+Apple, ideally replaced with the native `expo-apple-authentication` flow
+before shipping to the App Store) before tapping those buttons does
+anything but show an error — see "The backend (Supabase)".

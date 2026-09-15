@@ -1,4 +1,5 @@
 import React from 'react';
+import { ActivityIndicator, View } from 'react-native';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { color } from '../theme/tokens';
@@ -26,7 +27,20 @@ const navTheme = {
 };
 
 export function RootNavigator() {
-  const { status } = useAuth();
+  const { status, initializing } = useAuth();
+
+  // Only non-instant when Supabase is configured (mock auth never
+  // persists a session, so there's nothing to wait on) — restoring a
+  // session from AsyncStorage is fast but still async, and briefly
+  // showing Welcome before swapping to Main would be worse than a beat of
+  // blank screen.
+  if (initializing) {
+    return (
+      <View style={{ flex: 1, backgroundColor: color.bg, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={color.accent} />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer theme={navTheme}>

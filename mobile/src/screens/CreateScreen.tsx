@@ -20,6 +20,8 @@ import { text } from '../theme/text';
 import { color, font } from '../theme/tokens';
 import { CHALLENGE_TYPES, FRIENDS, type ChallengeKind } from '../data/sampleData';
 import { CHALLENGE_KIND_ICON } from '../data/challengeIcons';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { supabaseChallengesProvider } from '../challenges/supabaseChallenges';
 
 export function CreateScreen({ onCancel, onFinish }: { onCancel: () => void; onFinish: () => void }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -28,11 +30,40 @@ export function CreateScreen({ onCancel, onFinish }: { onCancel: () => void; onF
   const [headStart, setHeadStart] = useState(2);
   const [length, setLength] = useState<'7' | '21' | '30'>('21');
   const [invited, setInvited] = useState<string[]>(['Marcus R.', 'Dana K.']);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const toggleFriend = (name: string) =>
     setInvited((cur) => (cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name]));
 
   const headStartLabel = headStart === 1 ? '1 day' : `${headStart} days`;
+
+  const start = async () => {
+    // The rest of the app (Challenges list, Hunt screen) still reads the
+    // static sample data — see mobile/README.md "The backend (Supabase)"
+    // for why that's a deliberate, separate follow-up. This just proves
+    // the write path against a real project: creating a challenge here
+    // persists it and adds you as a participant, even though nothing yet
+    // reads it back.
+    if (!isSupabaseConfigured) {
+      onFinish();
+      return;
+    }
+    setSaveError(null);
+    setSaving(true);
+    try {
+      await supabaseChallengesProvider.createChallenge({
+        name: draftName.trim() || 'Untitled challenge',
+        kind: draftType,
+        durationDays: Number(length),
+      });
+      onFinish();
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Could not save that challenge — try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -193,21 +224,25 @@ export function CreateScreen({ onCancel, onFinish }: { onCancel: () => void; onF
         </View>
       )}
 
+      {saveError && <Text style={styles.saveError}>{saveError}</Text>}
+
       <View style={styles.footer}>
         {step > 1 ? (
           <Button
             label="Back"
             icon={<ArrowLeftIcon size={13} color={color.text} />}
             onPress={() => setStep((s) => (s - 1) as 1 | 2)}
+            disabled={saving}
           />
         ) : (
           <View />
         )}
         <Button
-          label={step === 3 ? 'Start the challenge' : 'Continue'}
+          label={step === 3 ? (saving ? 'Starting…' : 'Start the challenge') : 'Continue'}
           variant="primary"
           trailingIcon={<ArrowRightIcon size={13} color={color.accent} />}
-          onPress={() => (step === 3 ? onFinish() : setStep((s) => (s + 1) as 2 | 3))}
+          disabled={saving}
+          onPress={() => (step === 3 ? start() : setStep((s) => (s + 1) as 2 | 3))}
         />
       </View>
     </ScrollView>
@@ -311,5 +346,6 @@ const styles = StyleSheet.create({
   },
   linkText: { flex: 1, fontFamily: font.body, fontSize: 12.5, color: 'rgba(233,233,237,0.75)' },
   footNote: { fontSize: 12.5, color: 'rgba(233,233,237,0.55)' },
+  saveError: { fontSize: 12.5, color: color.amber, textAlign: 'center' },
   footer: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 6 },
 });
