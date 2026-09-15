@@ -67,6 +67,10 @@ the app at your own:
    `progress_snapshots`, all with Row Level Security policies scoping each
    table to "am I a participant of this challenge" — see the comments in
    that file for the exact policies.
+5. Same thing again with `0002_fix_challenge_participants_recursion.sql`
+   — a follow-up fix for a real bug in 0001's policies (see that file's
+   comment for the postmortem). Run both, in order, on every project,
+   including one where 0001 already ran.
 
 With those two env vars unset (the default — nothing above is required to
 run the app), everything falls back to what it did before: mock auth
@@ -324,7 +328,26 @@ Supabase's documented client API and the schema in
 consistent with), and `tsc` and the bundler both accept them, but there is
 no live Supabase project in this sandbox to run a single query against —
 treat both files, and the OAuth redirect flow in particular, as unverified
-until someone runs them against a real project. Same story for
+until someone runs them against a real project. This is exactly why
+0001's self-referential RLS policy on `challenge_participants` shipped
+uncaught in the first place: `tsc`/the bundler have no way to catch a
+Postgres-only bug like "infinite recursion detected in policy," since
+neither ever runs the SQL. The fix
+(`0002_fix_challenge_participants_recursion.sql`) *was* verified this
+way, after the fact — this sandbox has a local Postgres, so it's
+possible to stand up a throwaway database with a hand-rolled stand-in for
+just the pieces of Supabase our migrations touch (an `auth.users` table,
+`auth.uid()` reading a session variable instead of a real JWT,
+`authenticated`/`anon` roles) and actually run 0001 against it (reproduced
+the exact "infinite recursion detected in policy for relation
+'challenge_participants'" error from three separate queries), then 0002
+(all three succeeded, and a non-participant still correctly saw zero
+rows). That stand-in is deliberately not part of this repo — it's not a
+substitute for testing against the genuine Supabase stack (PostgREST,
+real JWTs, the actual `auth` schema Supabase ships) — but it's a strictly
+stronger check than reasoning about the SQL never running at all, and
+it's why this specific fix is trusted more than the rest of the
+Supabase-dependent code in this section. Same story for
 `src/auth/googleSignIn.ts`: no Google Cloud project or physical device
 either, so the only things actually exercised here are the "not
 configured" and "web preview" error paths (confirmed via `expo start
