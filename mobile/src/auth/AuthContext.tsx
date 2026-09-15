@@ -1,42 +1,90 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import * as mockAuth from './mockAuth';
+import * as supabaseAuth from './supabaseAuth';
 import type { AuthStatus, AuthUser, SignUpInput } from './types';
+
+// The one place that decides which backend is live. Every function below
+// (and every screen, via useAuth()) is written against this shape, not
+// against either module directly — see mobile/README.md.
+const backend = isSupabaseConfigured ? supabaseAuth : mockAuth;
 
 interface AuthContextValue {
   status: AuthStatus;
   user: AuthUser | null;
+  initializing: boolean;
   signInWithGoogle: () => Promise<void>;
   signInWithFacebook: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (input: SignUpInput) => Promise<void>;
-  signOut: () => void;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  // Only Supabase has a session worth restoring — mock auth never persists
+  // anything, so there's nothing to wait on and the app can render
+  // immediately (see src/health/HealthContext.tsx for the same shape of
+  // "is there something async to resolve before first render" flag).
+  const [initializing, setInitializing] = useState(isSupabaseConfigured);
 
-  // Every method here re-throws whatever mockAuth rejects with, so screens
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    let cancelled = false;
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (cancelled) return;
+      if (data.session) setUser(await supabaseAuth.userFromSession(data.session));
+      setInitializing(false);
+    });
+
+    // Keeps `user` in sync with token refreshes and with signOut() below
+    // (which calls supabase.auth.signOut() and lets this listener clear
+    // local state, rather than clearing it twice).
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        supabaseAuth.userFromSession(session).then((u) => {
+          if (!cancelled) setUser(u);
+        });
+      } else if (!cancelled) {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Every method re-throws whatever the backend rejects with, so screens
   // can show it directly (`err.message`) — this context adds no error
-  // translation of its own, matching how a real auth SDK's errors would
-  // reach the UI unmodified.
-  const signInWithGoogle = useCallback(async () => setUser(await mockAuth.signInWithProvider('google')), []);
-  const signInWithFacebook = useCallback(async () => setUser(await mockAuth.signInWithProvider('facebook')), []);
-  const signInWithApple = useCallback(async () => setUser(await mockAuth.signInWithProvider('apple')), []);
+  // translation of its own.
+  const signInWithGoogle = useCallback(async () => setUser(await backend.signInWithProvider('google')), []);
+  const signInWithFacebook = useCallback(async () => setUser(await backend.signInWithProvider('facebook')), []);
+  const signInWithApple = useCallback(async () => setUser(await backend.signInWithProvider('apple')), []);
   const signInWithEmail = useCallback(async (email: string, password: string) => {
-    setUser(await mockAuth.signInWithEmail(email, password));
+    setUser(await backend.signInWithEmail(email, password));
   }, []);
   const signUpWithEmail = useCallback(async (input: SignUpInput) => {
-    setUser(await mockAuth.signUpWithEmail(input));
+    setUser(await backend.signUpWithEmail(input));
   }, []);
-  const signOut = useCallback(() => setUser(null), []);
+  const signOut = useCallback(async () => {
+    await backend.signOut();
+    // Redundant with the onAuthStateChange listener when Supabase is
+    // configured, but that's the only backend that has one — mock auth
+    // needs this to actually clear state.
+    setUser(null);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       status: user ? 'signedIn' : 'signedOut',
       user,
+      initializing,
       signInWithGoogle,
       signInWithFacebook,
       signInWithApple,
@@ -44,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUpWithEmail,
       signOut,
     }),
-    [user, signInWithGoogle, signInWithFacebook, signInWithApple, signInWithEmail, signUpWithEmail, signOut],
+    [user, initializing, signInWithGoogle, signInWithFacebook, signInWithApple, signInWithEmail, signUpWithEmail, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

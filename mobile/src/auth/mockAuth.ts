@@ -1,18 +1,15 @@
+import { initialsFor } from './initials';
 import type { AuthProviderId, AuthUser, SignUpInput } from './types';
 
-// Stands in for a real identity backend (Firebase Auth, Auth0, a custom
-// API — whatever gets picked later). Every method here has the exact shape
-// a real one would (async, can reject with a user-facing message), so
-// swapping this module out is the only change AuthContext.tsx should ever
-// need. See mobile/README.md for what's mocked vs real.
+// Used when no Supabase project is configured (see src/lib/supabase.ts) —
+// AuthContext.tsx picks this module or supabaseAuth.ts at import time based
+// on isSupabaseConfigured. Every method here has the exact shape the real
+// one does (async, can reject with a user-facing message), so neither
+// AuthContext.tsx nor any screen needs to know which backend it's talking
+// to. See mobile/README.md for what's mocked vs real.
 
 function delay<T>(value: T, ms = 700): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms));
-}
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || 'H';
 }
 
 const PROVIDER_PROFILE: Record<Exclude<AuthProviderId, 'email'>, AuthUser> = {
@@ -52,4 +49,9 @@ export async function signUpWithEmail({ name, email, password }: SignUpInput): P
     throw new Error('An account already exists for this email.');
   }
   return { name, email, initials: initialsFor(name), provider: 'email' };
+}
+
+export async function signOut(): Promise<void> {
+  // Nothing to tear down — there's no session to invalidate anywhere but
+  // AuthContext's own in-memory state.
 }
