@@ -51,13 +51,16 @@ doesn't need a server of its own. **No project is included** — you point
 the app at your own:
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. Project Settings → API: copy the **Project URL** and **anon public**
-   key.
+2. Project Settings → API Keys: copy the **Project URL** and
+   **Publishable key** (Supabase's current name for the client-safe key;
+   a project created before ~November 2025 may instead label it "anon" /
+   "anon public" — same purpose, older key format, and Supabase is
+   retiring that name during 2026).
 3. `cp .env.example .env` in `mobile/` and paste them in as
-   `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY`. Expo
-   inlines `EXPO_PUBLIC_*` vars into the JS bundle at build/start time —
-   restart `expo start` after editing `.env`, since it's only read once at
-   startup.
+   `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
+   Expo inlines `EXPO_PUBLIC_*` vars into the JS bundle at build/start
+   time — restart `expo start` after editing `.env`, since it's only read
+   once at startup.
 4. SQL Editor → New query → paste in
    `supabase/migrations/0001_challenges_schema.sql` → Run. This creates
    `profiles`, `challenges`, `challenge_participants`, and
