@@ -156,7 +156,7 @@ feature this project doesn't have, so it's a real limitation, not
 something worth working around.
 
 **Challenge data**: `src/challenges/supabaseChallenges.ts` implements
-`listMyChallenges`, `listParticipants`, `getLeaderboard`,
+`listMyChallenges`, `getChallenge`, `listParticipants`, `getLeaderboard`,
 `createChallenge`, and `recordProgress` against the schema above.
 `CreateScreen.tsx`'s "Start the challenge" button calls `createChallenge`
 (creating a real row + joining yourself as a participant, when a project
@@ -173,12 +173,19 @@ fake demo challenges sitting next to real ones); on any failure, or with
 Supabase unconfigured, the screen quietly stays on the sample fallback,
 same as `src/health`'s pattern.
 
-Since nothing calls `recordProgress()` yet (see "What's not
-implemented"), a freshly created challenge always shows "no data yet" —
-that's `present.ts` being honest about an empty leaderboard, not a bug.
-The Hunt screen and the two static blocks on the Challenges screen
-(the "Priya invited you…" card, the "Finished" section) are unrelated to
-this and still fully static — see "What's not implemented".
+Tapping a real challenge card opens `ChallengeDetailScreen.tsx` — a
+generic detail view (not tied to any one challenge kind, unlike Hunt)
+showing the full participant list ranked by steps, defaulting to 0 for
+anyone who hasn't logged anything, plus a manual "log your progress"
+form that calls `recordProgress()`. That form is the only caller of
+`recordProgress()` anywhere in the app right now — there's no automatic
+sync from HealthKit/Health Connect into a challenge yet (see "What's not
+implemented"), so it's manual entry or nothing. Sample cards never open
+this screen (`ChallengeCard.target` distinguishes 'hunt' / 'detail' /
+not-tappable — see its comment in `sampleData.ts`), since they have no
+real row behind them to fetch. The Hunt screen and the two static blocks
+on the Challenges screen (the "Priya invited you…" card, the "Finished"
+section) remain fully static regardless of any of this.
 
 ## The auth layer
 
@@ -327,6 +334,14 @@ emulator, and no physical device attached. What *was* verified here:
   wizard) — visually verified end-to-end via `expo start --web` in a real
   browser, running against mock health data and mock auth (no Supabase
   project configured).
+- `ChallengeDetailScreen.tsx`'s render and error-handling paths
+  specifically: temporarily pointed one sample card's `target` at
+  `'detail'` (reverted before committing — sample cards never really do
+  this, see `sampleData.ts`'s comment on `target`) to navigate there with
+  Supabase unconfigured, confirming the loading state resolves cleanly
+  into a visible error ("Supabase is not configured.") with a working
+  back button, rather than a crash — real navigation, real component
+  lifecycle, just not a real data-loaded state.
 
 What was **not** verified, because it requires things this sandbox doesn't
 have: an actual HealthKit or Health Connect permission prompt, real device
@@ -370,18 +385,18 @@ generates the Info.plist entry it says it will."
 
 ## What's not implemented
 
-The Challenges *list* reads real data now (see "The backend (Supabase)"),
-but the Hunt screen and Friends screen still render
-`src/data/sampleData.ts`'s static content unconditionally — there's no
-generic challenge-detail screen yet, so tapping a real challenge row does
-nothing (deliberately; see `present.ts`'s comment on `target`), and
-Friends is unrelated to any of this. The Challenges screen's "Priya
-invited you…" card and "Finished" section are also still static, on
-either data path. HealthKit/Health Connect only ever cover *your own*
-metrics regardless; actually syncing a friend's steps into a shared
-leaderboard needs `progress_snapshots` rows written from their device,
-which nothing does yet (`recordProgress()` exists but nothing calls it —
-which is also why every real challenge currently shows "no data yet").
+The Challenges *list* and a real challenge's *detail* screen both read
+real data now (see "The backend (Supabase)"), but the Hunt screen and
+Friends screen still render `src/data/sampleData.ts`'s static content
+unconditionally, and are unrelated to either. The Challenges screen's
+"Priya invited you…" card and "Finished" section are also still static,
+on either data path. HealthKit/Health Connect only ever cover *your own*
+metrics regardless; actually syncing a friend's steps *automatically*
+into a shared leaderboard needs `progress_snapshots` rows written from
+their device without them opening the app and typing a number in —
+`ChallengeDetailScreen.tsx`'s manual entry form is the only thing calling
+`recordProgress()` today, so every number on a real leaderboard is
+exactly what someone typed in, nothing more.
 
 Facebook/Apple sign-in is wired to real Supabase OAuth calls but needs
 each provider configured in your Supabase dashboard (and, for Apple,

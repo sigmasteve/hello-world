@@ -20,9 +20,11 @@ import { useAuth } from '../auth/AuthContext';
 
 export function ChallengesScreen({
   onOpenHunt,
+  onOpenChallenge,
   onCreate,
 }: {
   onOpenHunt: () => void;
+  onOpenChallenge: (challengeId: string) => void;
   onCreate: () => void;
 }) {
   const { user } = useAuth();
@@ -79,7 +81,13 @@ export function ChallengesScreen({
       </Card>
 
       {challenges.map((c) => (
-        <ChallengeRow key={c.id} c={c} onPress={c.target === 'hunt' ? onOpenHunt : undefined} />
+        <ChallengeRow
+          key={c.id}
+          c={c}
+          onPress={
+            c.target === 'hunt' ? onOpenHunt : c.target === 'detail' ? () => onOpenChallenge(c.id) : undefined
+          }
+        />
       ))}
 
       {liveCards && liveCards.length === 0 && (

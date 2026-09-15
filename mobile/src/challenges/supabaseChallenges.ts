@@ -47,6 +47,17 @@ export const supabaseChallengesProvider: ChallengesProvider = {
     return (data ?? []).map(rowToChallenge);
   },
 
+  async getChallenge(challengeId: string): Promise<Challenge> {
+    const client = requireClient();
+    const { data, error } = await client
+      .from('challenges')
+      .select('id, name, kind, created_by, duration_days, starts_at, ends_at, daily_goal_steps')
+      .eq('id', challengeId)
+      .single();
+    if (error) throw new Error(error.message);
+    return rowToChallenge(data);
+  },
+
   async listParticipants(challengeId: string): Promise<Participant[]> {
     const client = requireClient();
     const { data, error } = await client

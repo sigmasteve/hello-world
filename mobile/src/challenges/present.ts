@@ -57,12 +57,10 @@ export function toChallengeCard(
       initials: p.initials,
       tint: p.userId === currentUserId ? TINT_A : TINT_N,
     })),
-    // No generic detail screen exists yet for a real challenge of any
-    // kind — HuntScreen is one specific hardcoded storyline, not a
-    // template. 'challenges' (i.e. anything but 'hunt') makes
-    // ChallengesScreen's `c.target === 'hunt' ? onOpenHunt : undefined`
-    // leave the row un-tappable rather than open unrelated content.
-    target: 'challenges',
+    // Opens the generic ChallengeDetailScreen — HuntScreen is one
+    // specific hardcoded storyline, not a template real challenges of
+    // any kind can share, so this never points there.
+    target: 'detail',
   };
 }
 

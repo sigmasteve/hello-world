@@ -38,6 +38,7 @@ export interface ChallengesProvider {
   // src/challenges/present.ts rather than the provider doing it, so a
   // real backend and the sample-data fallback can share one formatter.
   listMyChallenges(): Promise<Challenge[]>;
+  getChallenge(challengeId: string): Promise<Challenge>;
   // Every participant, regardless of whether they've recorded any
   // progress yet — a freshly created challenge has participants (at
   // least its creator) but an empty leaderboard, since nothing calls

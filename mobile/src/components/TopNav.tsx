@@ -11,6 +11,7 @@ import {
 } from 'phosphor-react-native';
 import { color, font } from '../theme/tokens';
 import type { MainTab } from '../navigation/types';
+import { useAuth } from '../auth/AuthContext';
 
 const NAV: { id: MainTab; label: string; Icon: React.ComponentType<any> }[] = [
   { id: 'home', label: 'Today', Icon: HouseIcon },
@@ -29,6 +30,13 @@ export function TopNav({
   onSelect: (tab: MainTab) => void;
   onProfile: () => void;
 }) {
+  const { user } = useAuth();
+  // First name only — the header's too narrow for "Stephen Washington
+  // Jr" alongside the nav row, and every other screen that shows the
+  // full name (Settings' account card) is right there one tap away via
+  // onProfile.
+  const firstName = user?.name.split(' ')[0] ?? '';
+
   return (
     <SafeAreaView edges={['top']} style={styles.safe}>
       <View style={styles.brandRow}>
@@ -38,9 +46,9 @@ export function TopNav({
         <Text style={styles.brandName}>Hound</Text>
         <Pressable style={styles.profile} onPress={onProfile}>
           <View style={styles.profileAvatar}>
-            <Text style={styles.profileInitials}>JL</Text>
+            <Text style={styles.profileInitials}>{user?.initials ?? ''}</Text>
           </View>
-          <Text style={styles.profileName}>Jordan</Text>
+          <Text style={styles.profileName}>{firstName}</Text>
         </Pressable>
       </View>
       <ScrollView

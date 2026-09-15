@@ -37,6 +37,7 @@ export function MainScreen({ route, navigation }: Props) {
         {tab === 'challenges' && (
           <ChallengesScreen
             onOpenHunt={() => navigation.navigate('Hunt')}
+            onOpenChallenge={(challengeId) => navigation.navigate('ChallengeDetail', { challengeId })}
             onCreate={() => navigation.navigate('Create')}
           />
         )}
