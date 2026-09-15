@@ -74,18 +74,63 @@ caller checks.
 
 **Email/password auth is fully wired** (`src/auth/supabaseAuth.ts`) — sign
 up and log in for real once a project is configured, no further setup
-needed. **Google/Facebook/Apple are wired in code but need provider setup
-you have to do yourself**: each one requires creating an OAuth app in that
-provider's own developer console (Google Cloud Console, Meta for
-Developers, Apple Developer — separate accounts Claude can't create on
-your behalf) and pasting the resulting client ID/secret into Supabase's
-Authentication → Providers page. Until a given provider is enabled there,
-tapping its button fails with a clear error
-("Sign-in did not return a session — is this provider enabled in
-Supabase?") rather than crashing. Apple in particular: App Store review
-expects native Sign in with Apple (`expo-apple-authentication`) rather
-than the generic web-OAuth flow used here for all three buttons — that's
-a follow-up, not done in this pass (see "What's not implemented").
+needed. **Facebook and Apple are wired in code but need provider setup
+you have to do yourself**: each requires creating an OAuth app in that
+provider's own developer console (Meta for Developers, Apple Developer —
+separate accounts Claude can't create on your behalf) and pasting the
+resulting client ID/secret into Supabase's Authentication → Providers
+page. Until a given provider is enabled there, tapping its button fails
+with a clear error ("Sign-in did not return a session — is this provider
+enabled in Supabase?") rather than crashing. Apple in particular: App
+Store review expects native Sign in with Apple
+(`expo-apple-authentication`) rather than the generic web-OAuth flow used
+here — that's a follow-up, not done in this pass (see "What's not
+implemented"). **Google uses a different, better path** — see "Google
+Sign-In (native)" below.
+
+### Google Sign-In (native)
+
+Google's button uses the real native Google account picker
+(`@react-native-google-signin/google-signin`) rather than Facebook/Apple's
+generic web-OAuth redirect — better UX, and it's what Google's own docs
+recommend for mobile apps. The trade-off is more setup, all in [Google
+Cloud Console](https://console.cloud.google.com/apis/credentials):
+
+1. Create (or pick) a project, then **Create Credentials → OAuth client
+   ID** three times, once each for:
+   - **Web application** — no redirect URI needed. Copy its **Client
+     ID**; this is what audiences the ID token Google issues, so both
+     the app and Supabase have to agree on it.
+   - **iOS** — Bundle ID `app.hound.mobile` (`app.json`'s
+     `ios.bundleIdentifier`). Copy its **Client ID**, then reverse it
+     (`1234-abc.apps.googleusercontent.com` →
+     `com.googleusercontent.apps.1234-abc`) into `app.json`'s
+     `plugins` entry for `@react-native-google-signin/google-signin`,
+     replacing the `REPLACE_WITH_YOUR_IOS_CLIENT_ID` placeholder. This
+     is a static app.json edit, not an env var — it has to exist before
+     `expo prebuild` runs.
+   - **Android** — package name `app.hound.mobile` plus your signing
+     certificate's SHA-1 fingerprint (`keytool -list -v -keystore
+     ~/.android/debug.keystore` for a debug build; get release's from
+     wherever you manage that keystore, or from EAS Build's credentials
+     if you use it).
+2. `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` in `.env` — the **Web** client ID
+   from step 1, not the iOS or Android one.
+3. Supabase dashboard → Authentication → Providers → Google: paste in
+   that same Web client ID plus its client secret, enable.
+4. Needs a native rebuild either way (`npx expo prebuild --clean` +
+   `expo run:ios` / `expo run:android`) — this is a native module, so it
+   doesn't exist in Expo Go and can't be picked up by just reloading JS.
+
+Without `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` set, tapping Google shows a
+clear "needs this env var" error (`src/auth/googleSignIn.ts`) rather than
+crashing or silently falling back — this is independent of whether
+Supabase itself is configured, since the token exchange
+(`supabase.auth.signInWithIdToken`) needs both sides. On the web preview
+(`expo start --web`) Google always shows "isn't available in the web
+preview" — the underlying package's web implementation is a paid-sponsor
+feature this project doesn't have, so it's a real limitation, not
+something worth working around.
 
 **Challenge data**: `src/challenges/supabaseChallenges.ts` implements
 `listMyChallenges`, `getLeaderboard`, `createChallenge`, and
@@ -236,12 +281,13 @@ emulator, and no physical device attached. What *was* verified here:
 - `npx tsc --noEmit` — clean, no type errors.
 - `npx expo prebuild --platform ios` / `--platform android` — both generate
   native projects cleanly; the iOS entitlements and Info.plist keys the
-  HealthKit config plugin is supposed to add were checked in the generated
-  `ios/` output.
+  HealthKit and Google Sign-In config plugins are supposed to add
+  (including the reversed `iosUrlScheme` — see "Google Sign-In (native)")
+  were checked in the generated `ios/` output.
 - `npx expo export --platform ios` and `--platform android` — both bundle
-  cleanly (4,200+ modules resolve, including `@kingstinct/react-native-healthkit`
-  and `react-native-health-connect`), so there's no import/resolution error
-  waiting to surface on a real build.
+  cleanly (4,200+ modules resolve, including `@kingstinct/react-native-healthkit`,
+  `react-native-health-connect`, and `@react-native-google-signin/google-signin`),
+  so there's no import/resolution error waiting to surface on a real build.
 - The full UI, every screen, and every interaction (wizard steps, slider,
   toggles, tab switches, navigation, the full sign-in flow, the Create
   wizard) — visually verified end-to-end via `expo start --web` in a real
@@ -259,7 +305,15 @@ Supabase's documented client API and the schema in
 consistent with), and `tsc` and the bundler both accept them, but there is
 no live Supabase project in this sandbox to run a single query against —
 treat both files, and the OAuth redirect flow in particular, as unverified
-until someone runs them against a real project.
+until someone runs them against a real project. Same story for
+`src/auth/googleSignIn.ts`: no Google Cloud project or physical device
+either, so the only things actually exercised here are the "not
+configured" and "web preview" error paths (confirmed via `expo start
+--web` — the Google button still resolves through mock auth exactly as
+before, and the new native import doesn't break bundling for anyone who
+isn't using it). The real native sign-in call, the ID-token exchange, and
+`app.json`'s reversed `iosUrlScheme` are unverified beyond "the plugin
+generates the Info.plist entry it says it will."
 
 ## What's not implemented
 
@@ -274,8 +328,13 @@ needs `progress_snapshots` rows written from their device, which nothing
 does yet (`recordProgress()` exists but nothing calls it — that's the
 same follow-up as the leaderboard reads above, from the other direction).
 
-Google/Facebook/Apple sign-in is wired to real Supabase OAuth calls but
-needs each provider configured in your Supabase dashboard (and, for
-Apple, ideally replaced with the native `expo-apple-authentication` flow
-before shipping to the App Store) before tapping those buttons does
-anything but show an error — see "The backend (Supabase)".
+Facebook/Apple sign-in is wired to real Supabase OAuth calls but needs
+each provider configured in your Supabase dashboard (and, for Apple,
+ideally replaced with the native `expo-apple-authentication` flow before
+shipping to the App Store) before tapping those buttons does anything
+but show an error. Google sign-in is wired natively
+(`@react-native-google-signin/google-signin` + `signInWithIdToken`) but
+needs three OAuth clients created in Google Cloud Console, one Info.plist
+edit in `app.json`, and a native rebuild before it does anything either
+— see "The backend (Supabase)" → "Google Sign-In (native)" for the full
+checklist either way.

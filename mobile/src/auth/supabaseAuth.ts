@@ -2,6 +2,7 @@ import type { Session } from '@supabase/supabase-js';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../lib/supabase';
+import { signInWithGoogleNative, signOutGoogleNative } from './googleSignIn';
 import { initialsFor } from './initials';
 import type { AuthProviderId, AuthUser, SignUpInput } from './types';
 
@@ -54,19 +55,21 @@ export async function signUpWithEmail({ name, email, password }: SignUpInput): P
   return userFromSession(data.session, 'email');
 }
 
-// Supabase's provider ids line up with ours except Apple stays 'apple' —
-// spelled out for clarity at the one place that has to know it.
-const SUPABASE_PROVIDER: Record<Exclude<AuthProviderId, 'email'>, 'google' | 'facebook' | 'apple'> = {
-  google: 'google',
+// Facebook and Apple go through Supabase's generic OAuth redirect flow —
+// an in-app browser tab to that provider's own consent screen. Google
+// gets a different, better path below (the real native account picker);
+// see mobile/README.md "Google Sign-In (native)" for why Google alone is
+// worth the extra setup.
+const SUPABASE_WEB_OAUTH_PROVIDER: Record<'facebook' | 'apple', 'facebook' | 'apple'> = {
   facebook: 'facebook',
   apple: 'apple',
 };
 
-export async function signInWithProvider(provider: Exclude<AuthProviderId, 'email'>): Promise<AuthUser> {
+async function signInWithWebOAuth(provider: 'facebook' | 'apple'): Promise<AuthUser> {
   const client = requireClient();
   const redirectTo = Linking.createURL('auth/callback');
   const { data, error } = await client.auth.signInWithOAuth({
-    provider: SUPABASE_PROVIDER[provider],
+    provider: SUPABASE_WEB_OAUTH_PROVIDER[provider],
     options: { redirectTo, skipBrowserRedirect: true },
   });
   if (error) throw new Error(error.message);
@@ -93,8 +96,21 @@ export async function signInWithProvider(provider: Exclude<AuthProviderId, 'emai
   return userFromSession(sessionData.session, provider);
 }
 
+async function signInWithGoogle(): Promise<AuthUser> {
+  const client = requireClient();
+  const idToken = await signInWithGoogleNative();
+  const { data, error } = await client.auth.signInWithIdToken({ provider: 'google', token: idToken });
+  if (error) throw new Error(error.message);
+  return userFromSession(data.session, 'google');
+}
+
+export async function signInWithProvider(provider: Exclude<AuthProviderId, 'email'>): Promise<AuthUser> {
+  return provider === 'google' ? signInWithGoogle() : signInWithWebOAuth(provider);
+}
+
 export async function signOut(): Promise<void> {
   const client = requireClient();
+  await signOutGoogleNative();
   const { error } = await client.auth.signOut();
   if (error) throw new Error(error.message);
 }
